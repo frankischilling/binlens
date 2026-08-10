@@ -20,11 +20,13 @@ Diagnostics carry severity, code, message, optional span, component, expected an
 
 ## Parsers and registry
 
-Each format exports a `Format.parser` record with identity, extensions, coverage, detection, and parsing functions. `Registry.all` is the first-party registry. The CLI does not switch on file formats itself.
+Each format exports a `Format.parser` record with identity, extensions, coverage, detection, and parsing functions. `Registry.builtins` contains the first-party parsers used by the CLI. The CLI does not switch on file formats itself.
 
-`Registry.safe_parse` is the public exception boundary. Parser code uses `result` values internally. If an unexpected exception reaches the boundary, the registry converts it into `parser.internal_exception` and a partial result. The test suite also calls parser functions directly so this boundary cannot hide parser defects.
+`Registry.create` and `Registry.with_parser` build immutable custom registries. Registration API version 1 accepts lowercase parser identifiers and lowercase file extensions, rejects duplicates, and returns structured errors. Custom registry order is deterministic. Existing calls without `~registry` use `Registry.builtins`.
 
-Dynamic third-party loading is outside v0.1.0. A future plugin interface would need versioned types, explicit trust rules, and isolation from the inspected file's directory.
+Registry parsing contains the public exception boundary. Parser code uses `result` values internally. If an unexpected exception reaches the boundary, the registry converts it into `parser.internal_exception` and a partial result. The test suite also calls parser functions directly so this boundary cannot hide parser defects.
+
+A custom parser is ordinary OCaml code linked by the host application and runs with that application's authority. BinLens does not use `Dynlink`, search the inspected file's directory, download packages, or execute plugin commands. A stable native plugin ABI across OCaml compiler versions is not claimed.
 
 ## Rendering and comparison
 

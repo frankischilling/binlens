@@ -1,3 +1,7 @@
 (executable
  (name generate_fixtures)
  (libraries fixture_builder unix))
+
+(executable
+ (name custom_registry)
+ (libraries binlens))

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add registration API version 1 for immutable custom parser registries.
+- Validate duplicate and malformed parser identifiers and file extensions.
+- Apply the built-in detector and parser exception boundaries to custom registries.
+- Add a compiled custom-registry example while keeping runtime library loading disabled.
+
 ## 0.1.0
 
 Initial release.

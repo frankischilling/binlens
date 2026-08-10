@@ -144,6 +144,20 @@ A limit failure returns status 5. [Parser safety](docs/PARSER_SAFETY.md) describ
 
 The `binlens` library exposes `Reader`, `Span`, `Node`, `Diagnostic`, `Registry`, `Render_json`, `Render_text`, and `Diff` under the `Binlens` module. Parser entry points return `result` values or `Format.parse_result`; the registry contains the only exception-catching boundary.
 
+`Registry.builtins` is the registry used by the command-line application. An OCaml application can link its own `Format.parser`, then create an immutable registry without editing BinLens source:
+
+```ocaml
+let registry =
+  match Binlens.Registry.with_parser Binlens.Registry.builtins My_format.parser with
+  | Ok registry -> registry
+  | Error error -> failwith (Binlens.Error.to_string error)
+
+let result =
+  Binlens.Registry.parse ~registry Binlens.Limits.default input_reader
+```
+
+Registration API version 1 validates parser identifiers and extensions. BinLens does not discover or load libraries at runtime. A complete compiled example is in [`examples/custom_registry.ml`](examples/custom_registry.ml).
+
 [Architecture](docs/ARCHITECTURE.md) explains module ownership. [Development](docs/DEVELOPMENT.md) covers tests, generated fixtures, documentation, and benchmarks.
 
 ## Roadmap
