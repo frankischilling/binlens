@@ -48,6 +48,128 @@ let test_elf_variants () =
       Fixture_builder.elf64_big ()
     ]
 
+let test_elf_extended_numbering () =
+  List.iter
+    (fun bytes ->
+      let result = parse "elf" bytes in
+      assert_no_errors result;
+      assert_path result "elf.resolved_program_header_count";
+      assert_path result "elf.resolved_section_header_count";
+      assert_path result "elf.resolved_section_name_string_table_index";
+      assert_path result "elf.program_headers[0].offset";
+      assert_path result "elf.section_headers[1].name")
+    [ Fixture_builder.elf32_little_extended ();
+      Fixture_builder.elf32_big_extended ();
+      Fixture_builder.elf64_little_extended ();
+      Fixture_builder.elf64_big_extended ()
+    ];
+  let result = parse "elf" (Fixture_builder.elf32_little_extended ()) in
+  let sections = require_path result "elf.resolved_section_header_count" in
+  Alcotest.(check int64)
+    "resolved count span" 104L
+    (Span.start sections.Node.span);
+  Alcotest.(check int64)
+    "resolved count length" 4L
+    (Span.length sections.Node.span)
+
+let test_elf_metadata () =
+  let fixtures =
+    [ (16L, Fixture_builder.elf32_little_metadata ());
+      (16L, Fixture_builder.elf32_big_metadata ());
+      (24L, Fixture_builder.elf64_little_metadata ());
+      (24L, Fixture_builder.elf64_big_metadata ())
+    ]
+  in
+  List.iter
+    (fun (symbol_size, bytes) ->
+      let result = parse "elf" bytes in
+      assert_no_errors result;
+      assert_path result "elf.section_headers[3].symbols[0].name";
+      assert_path result "elf.section_headers[4].dynamic_entries[0].string";
+      assert_path result "elf.section_headers[5].relocations[0].relocation_type";
+      assert_path result "elf.section_headers[6].relocations[0].addend";
+      assert_path result "elf.section_headers[7].notes[0].name";
+      assert_path result "elf.section_headers[7].notes[0].descriptor";
+      assert_path result "elf.section_headers[8].dwarf_section";
+      let symbol = require_path result "elf.section_headers[3].symbols[0]" in
+      Alcotest.(check int64)
+        "symbol entry span" symbol_size
+        (Span.length symbol.Node.span);
+      let flags = require_path result "elf.flags" in
+      match flags.Node.value with
+      | Value.Bitfield { flags; _ } ->
+          Alcotest.(check bool)
+            "RISC-V compressed flag" true
+            (List.assoc "Compressed instructions" flags)
+      | _ -> Alcotest.fail "expected decoded RISC-V flags")
+    fixtures
+
+let test_elf_metadata_malformed () =
+  let invalid_link = Fixture_builder.elf32_little_metadata () in
+  Fixture_builder.set_u32 invalid_link Endian.Little 196 99L;
+  Alcotest.(check bool)
+    "invalid symbol link" true (parse "elf" invalid_link).partial;
+  let zero_entry = Fixture_builder.elf32_little_metadata () in
+  Fixture_builder.set_u32 zero_entry Endian.Little 208 0L;
+  Alcotest.(check bool)
+    "zero metadata entry" true (parse "elf" zero_entry).partial;
+  let invalid_string = Fixture_builder.elf32_little_metadata () in
+  let parsed = parse "elf" invalid_string in
+  let symbol = require_path parsed "elf.section_headers[3].symbols[0]" in
+  Fixture_builder.set_u32 invalid_string Endian.Little
+    (Int64.to_int (Span.start symbol.Node.span))
+    0xffffL;
+  Alcotest.(check bool)
+    "invalid symbol string" true (parse "elf" invalid_string).partial;
+  let truncated_note = Fixture_builder.elf32_little_metadata () in
+  let note_header = 52 + (7 * 40) in
+  Fixture_builder.set_u32 truncated_note Endian.Little (note_header + 20) 19L;
+  Alcotest.(check bool)
+    "truncated note" true (parse "elf" truncated_note).partial;
+  let huge_base = Fixture_builder.elf32_little_metadata () in
+  let parsed = parse "elf" huge_base in
+  let symbol = require_path parsed "elf.section_headers[3].symbols[0]" in
+  let table_size = 16 * 4097 in
+  let needed = Int64.to_int (Span.start symbol.Node.span) + table_size in
+  let huge =
+    Bytes.extend huge_base 0 (max 0 (needed - Bytes.length huge_base))
+  in
+  Fixture_builder.set_u32 huge Endian.Little
+    (52 + (3 * 40) + 20)
+    (Int64.of_int table_size);
+  Alcotest.(check bool)
+    "metadata count limit" true (parse "elf" huge).limit_reached;
+  let trailing = Fixture_builder.elf32_little_metadata () in
+  Fixture_builder.set_u32 trailing Endian.Little (52 + (3 * 40) + 20) 15L;
+  let result = parse "elf" trailing in
+  Alcotest.(check bool)
+    "trailing entry bytes" true
+    (List.exists
+       (fun diagnostic ->
+         String.equal diagnostic.Diagnostic.code "elf.metadata_trailing_bytes")
+       result.diagnostics);
+  let overflow = Fixture_builder.elf64_little_metadata () in
+  Fixture_builder.set_u64 overflow Endian.Little
+    (64 + (3 * 64) + 24)
+    Int64.min_int;
+  Alcotest.(check bool)
+    "metadata offset overflow" true (parse "elf" overflow).partial
+
+let test_elf_machine_flags () =
+  let check machine raw expected =
+    let bytes = Fixture_builder.elf32_little () in
+    Fixture_builder.set_u16 bytes Endian.Little 18 machine;
+    Fixture_builder.set_u32 bytes Endian.Little 36 raw;
+    let flags = require_path (parse "elf" bytes) "elf.flags" in
+    match flags.Node.value with
+    | Value.Bitfield { flags; _ } ->
+        Alcotest.(check bool) expected true (List.assoc expected flags)
+    | _ -> Alcotest.failf "expected decoded flags for machine %d" machine
+  in
+  check 8 0x2L "Position-independent code";
+  check 40 0x4L "Interworking";
+  check 243 0x1L "Compressed instructions"
+
 let test_elf_malformed () =
   let invalid_class =
     Fixture_builder.corrupt_u8 (Fixture_builder.elf32_little ()) 4 9
@@ -61,7 +183,15 @@ let test_elf_malformed () =
   let outside = Bytes.copy (Fixture_builder.elf32_little ()) in
   Fixture_builder.set_u32 outside Endian.Little 32 Int64.max_int;
   let result = parse "elf" outside in
-  Alcotest.(check bool) "outside table partial" true result.partial
+  Alcotest.(check bool) "outside table partial" true result.partial;
+  let small_entry = Fixture_builder.elf32_little_extended () in
+  Fixture_builder.set_u16 small_entry Endian.Little 46 20;
+  let result = parse "elf" small_entry in
+  Alcotest.(check bool) "extended entry partial" true result.partial;
+  let huge_count = Fixture_builder.elf32_little_extended () in
+  Fixture_builder.set_u32 huge_count Endian.Little 104 0xffff_ffffL;
+  let result = parse "elf" huge_count in
+  Alcotest.(check bool) "extended count limit" true result.limit_reached
 
 let test_pe_variants () =
   List.iter
@@ -96,7 +226,7 @@ let test_pe_malformed () =
 
 let test_parser_limits_and_ranges () =
   let elf = Bytes.copy (Fixture_builder.elf32_little ()) in
-  Fixture_builder.set_u16 elf Endian.Little 44 0xffff;
+  Fixture_builder.set_u16 elf Endian.Little 44 0xfffe;
   let result = parse "elf" elf in
   Alcotest.(check bool) "ELF table limit" true result.limit_reached;
   let pe = Bytes.copy (Fixture_builder.pe32 ()) in
@@ -258,6 +388,8 @@ let test_truncation () =
   let fixtures =
     [ ("elf", Fixture_builder.elf32_little ());
       ("elf", Fixture_builder.elf64_big ());
+      ("elf", Fixture_builder.elf32_big_metadata ());
+      ("elf", Fixture_builder.elf64_little_metadata ());
       ("pe", Fixture_builder.pe32 ());
       ("pe", Fixture_builder.pe32_plus ());
       ("nes", Fixture_builder.nes ());
@@ -281,6 +413,12 @@ let () =
     [ ( "ELF",
         [ Alcotest.test_case "four class and endian variants" `Quick
             test_elf_variants;
+          Alcotest.test_case "extended numbering" `Quick
+            test_elf_extended_numbering;
+          Alcotest.test_case "metadata tables" `Quick test_elf_metadata;
+          Alcotest.test_case "malformed metadata" `Quick
+            test_elf_metadata_malformed;
+          Alcotest.test_case "machine flags" `Quick test_elf_machine_flags;
           Alcotest.test_case "malformed" `Quick test_elf_malformed
         ] );
       ( "PE",

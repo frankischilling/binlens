@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Resolve ELF extended numbering through section header zero before table iteration.
+- Decode bounded ELF symbol, dynamic, REL, RELA, and note records with exact spans.
+- Identify common DWARF section names and selected MIPS, ARM, and RISC-V header flags.
 - Add registration API version 1 for immutable custom parser registries.
 - Validate duplicate and malformed parser identifiers and file extensions.
 - Apply the built-in detector and parser exception boundaries to custom registries.

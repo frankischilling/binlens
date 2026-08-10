@@ -85,6 +85,17 @@ let consume_table_entries tracker amount =
       Ok ()
   | Error error -> Error error
 
+let consume_table_entries_int64 tracker amount =
+  if
+    Int64.compare amount 0L < 0
+    || Int64.compare amount (Int64.of_int tracker.limits.max_table_entries) > 0
+  then (
+    tracker.limit_reached <- true;
+    Error
+      (resource_error "limit.table_entries"
+         "The parser table-entry limit was reached."))
+  else consume_table_entries tracker (Int64.to_int amount)
+
 let consume_bytes_copied tracker amount =
   match
     consume tracker tracker.bytes_copied amount
