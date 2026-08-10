@@ -47,7 +47,7 @@ The synthetic examples contain no third-party executables or commercial ROM data
 
 ```console
 $ dune exec examples/generate_fixtures.exe -- examples/generated
-Wrote 11 synthetic fixtures to examples/generated
+Wrote 13 synthetic fixtures to examples/generated
 
 $ dune exec binlens -- inspect examples/generated/minimal-elf64-le.elf --max-depth 1
 ELF [0x00000000..0x00000040) = 18 items
@@ -61,7 +61,7 @@ ELF [0x00000000..0x00000040) = 18 items
 
 The interval `[0x18..0x20)` means the entry point came from eight bytes beginning at file offset `0x18`. The TUI uses that same span to mark bytes in the hexadecimal panel.
 
-The generated `metadata-elf32-le.elf` and `metadata-elf64-be.elf` fixtures include synthetic symbol, dynamic, REL, RELA, note, and DWARF-named sections.
+The generated `metadata-elf32-le.elf` and `metadata-elf64-be.elf` fixtures include synthetic symbol, dynamic, REL, RELA, note, and DWARF-named sections. `directories-pe32.exe` and `directories-pe32-plus.exe` contain synthetic exports, imports, resources, relocations, debug records, and certificates.
 
 ## Interactive view
 
@@ -106,7 +106,7 @@ See [the JSON schema notes](docs/JSON_SCHEMA.md) for the complete versioned shap
 | Format | Implemented | Not parsed |
 | --- | --- | --- |
 | ELF | ELF32 and ELF64 headers in both byte orders, extended numbering, program and section headers, section names, bounded symbol, dynamic, REL, RELA, and note records, common DWARF section markers | Dynamic loading, applied relocations, DWARF payloads, symbol versioning, complete architecture flags |
-| PE | DOS and PE signatures, COFF, PE32 and PE32+ core fields, basic data directories, sections, alignment and raw-range checks | Imports, resources, relocations, debug contents, complete RVA mapping |
+| PE | DOS and PE signatures, COFF, PE32 and PE32+ core fields, checked RVA mapping, export names and ordinals, import descriptors and thunks, resource metadata, relocations, debug records, certificates, sections | Loaded-image semantics, decoded resource payloads, external debug data, Authenticode verification, CLR metadata |
 | NES | iNES and NES 2.0 sizes, mapper, submapper, console and storage flags, bank counts, checked trainer, PRG ROM, and CHR ROM spans | Mapper behavior and emulation |
 | Game Boy | Title, CGB flag, cartridge metadata, declared sizes and bank counts, checked ROM span, destination, version, header and global checksums | Bank-switch behavior and save-data decoding |
 | Game Boy Advance | Complete 156-byte logo validation with documented flag masks, title and identity fields, unit and device fields, fixed byte, software version, header checksum, bounded save-memory signature detection | Payload structures, save-data decoding, and emulation |
@@ -164,6 +164,6 @@ Registration API version 1 validates parser identifiers and extensions. BinLens 
 
 ## Roadmap
 
-The [v0.1.0 milestone](https://github.com/frankischilling/binlens/milestone/1) records the initial release. The [v0.2.0 milestone](https://github.com/frankischilling/binlens/milestone/2) tracks the documented limits that remain: [ELF metadata](https://github.com/frankischilling/binlens/issues/17), [PE directories and RVA mapping](https://github.com/frankischilling/binlens/issues/18), [ROM payload metadata](https://github.com/frankischilling/binlens/issues/19), [scalable read-only input](https://github.com/frankischilling/binlens/issues/20), and [versioned parser registration](https://github.com/frankischilling/binlens/issues/21).
+The [v0.1.0 milestone](https://github.com/frankischilling/binlens/milestone/1) records the initial release. The [v0.2.0 milestone](https://github.com/frankischilling/binlens/milestone/2) records completed ELF, PE, ROM, and registry work and tracks the remaining [scalable read-only input](https://github.com/frankischilling/binlens/issues/20) task.
 
 BinLens is available under the MIT license. See [CONTRIBUTING.md](CONTRIBUTING.md) before sending a change and [SECURITY.md](SECURITY.md) for private vulnerability reports.

@@ -45,7 +45,11 @@ The CLI accepts lower or higher nonnegative node, table, string, and depth value
 
 Format loops use validated, budgeted counts. ELF extended counts are read from a complete section-zero entry and checked before conversion to an OCaml integer. ELF symbol, dynamic, relocation, and note records consume both table entries and work units. A zero metadata entry size is rejected before division or iteration. Linked string tables must fit in the input, and string offsets are checked against the linked table.
 
-Null-terminated strings have a maximum. The Game Boy global checksum runs only when the file length fits the work budget. Game Boy Advance save-signature detection consumes one work unit for each candidate byte offset and stops when the budget is exhausted. Tree depth is fixed by the current parsers and bounded by the model limit.
+PE RVA mapping checks the header range and every candidate section. A mapped range must fit the section's virtual and raw extents, and overlapping matches are rejected. Export arrays, import descriptors and thunks, relocation blocks, debug records, and certificates consume shared table and work budgets. Import strings stop at the mapped section boundary or the string limit.
+
+PE resource offsets stay inside the declared directory span. Traversal records visited directory offsets to stop cycles and checks `max_depth` before recursion. UTF-16LE resource names must pass both directory bounds and the string-length budget. Resource payload nodes retain spans without copying payload bytes.
+
+Null-terminated strings have a maximum. The Game Boy global checksum runs only when the file length fits the work budget. Game Boy Advance save-signature detection consumes one work unit for each candidate byte offset and stops when the budget is exhausted. Nonrecursive parsers have a fixed structural depth; PE resource traversal checks the configured depth limit.
 
 ROM payload nodes hold spans and lengths. They do not copy trainer, PRG ROM, CHR ROM, or Game Boy ROM bytes into the tree.
 
