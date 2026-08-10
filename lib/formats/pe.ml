@@ -281,7 +281,9 @@ let parse_directory_mappings context records sections ~header_size =
       let last = List.hd (List.rev records) in
       let start = Span.start first.span in
       let finish =
-        match Span.end_offset last.span with Ok value -> value | Error _ -> start
+        match Span.end_offset last.span with
+        | Ok value -> value
+        | Error _ -> start
       in
       Parse_context.node context ~id:"directory_mappings"
         ~path:"pe.directory_mappings" ~label:"Mapped directory ranges"

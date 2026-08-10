@@ -80,20 +80,21 @@ let test_pe_rva_mapping () =
     assert_no_errors result;
     let mapping = require_path result "pe.directory_mappings[0]" in
     Alcotest.(check int64)
-      "section mapping offset" 0x200L (Span.start mapping.Node.span);
+      "section mapping offset" 0x200L
+      (Span.start mapping.Node.span);
     Alcotest.(check int64)
-      "section mapping length" 0x10L (Span.length mapping.Node.span)
+      "section mapping length" 0x10L
+      (Span.length mapping.Node.span)
   in
   check_section_mapping (Fixture_builder.pe32 ()) 0xf8;
   check_section_mapping (Fixture_builder.pe32_plus ()) 0x108;
   let header = Fixture_builder.pe32 () in
   Fixture_builder.set_u32 header Endian.Little 0xf8 0x80L;
   Fixture_builder.set_u32 header Endian.Little 0xfc 0x10L;
-  let mapping =
-    require_path (parse "pe" header) "pe.directory_mappings[0]"
-  in
+  let mapping = require_path (parse "pe" header) "pe.directory_mappings[0]" in
   Alcotest.(check int64)
-    "header mapping offset" 0x80L (Span.start mapping.Node.span);
+    "header mapping offset" 0x80L
+    (Span.start mapping.Node.span);
   let certificate = Fixture_builder.pe32 () in
   Fixture_builder.set_u32 certificate Endian.Little (0xf8 + (4 * 8)) 0x200L;
   Fixture_builder.set_u32 certificate Endian.Little (0xfc + (4 * 8)) 0x10L;
@@ -101,7 +102,8 @@ let test_pe_rva_mapping () =
     require_path (parse "pe" certificate) "pe.directory_mappings[4]"
   in
   Alcotest.(check int64)
-    "certificate file offset" 0x200L (Span.start mapping.Node.span)
+    "certificate file offset" 0x200L
+    (Span.start mapping.Node.span)
 
 let test_pe_rva_mapping_malformed () =
   let unmapped = Fixture_builder.pe32 () in
