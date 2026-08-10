@@ -76,8 +76,16 @@ The harness measures sequential reads, ELF and PE parsing, text and JSON renderi
 2. Read file data only through `Reader`.
 3. Check table count, multiplication, and the full range before iteration.
 4. Build stable paths from format fields, not labels.
-5. Add the parser to `Registry.parsers` in deterministic order.
+5. Add a first-party parser to `Registry.first_party_parsers` in deterministic order.
 6. Add generated valid and malformed fixtures, every-prefix truncation coverage, and arbitrary-input execution.
 7. Update format coverage and schema examples if new value types or metadata are needed.
 
 Keep exceptions inside a helper only when the helper catches and converts them before returning. Public parser calls must return structured results.
+
+Applications can register a statically linked parser through `Registry.create` or `Registry.with_parser`. Run the compiled example with:
+
+```console
+dune exec examples/custom_registry.exe
+```
+
+Registration does not load a library at runtime. The host application chooses and links the parser code during its normal build.

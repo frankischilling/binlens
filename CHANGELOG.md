@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add registration API version 1 for immutable custom parser registries.
+- Validate duplicate and malformed parser identifiers and file extensions.
+- Apply the built-in detector and parser exception boundaries to custom registries.
+- Add a compiled custom-registry example while keeping runtime library loading disabled.
 - Validate all 156 Game Boy Advance Nintendo logo bytes with documented flag masks and attach exact mismatch diagnostics.
 - Detect Game Boy Advance save-memory SDK strings under the parser work budget.
 - Add NES trainer, PRG ROM, and CHR ROM spans plus PRG and CHR bank counts.
