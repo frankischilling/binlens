@@ -14,7 +14,7 @@ opam install . --deps-only --with-test --with-doc --with-dev-setup
 ## Common checks
 
 ```console
-opam exec -- dune fmt --check
+opam exec -- dune build @fmt
 opam exec -- dune build @all
 opam exec -- dune runtest
 opam exec -- dune build @doc
@@ -56,7 +56,7 @@ The output directory is ignored by Git.
 mkdir _coverage
 BISECT_FILE=$PWD/_coverage/bisect dune runtest --instrument-with bisect_ppx --force
 bisect-ppx-report summary --coverage-path _coverage
-bisect-ppx-report html --coverage-path _coverage --output _coverage/html
+bisect-ppx-report html --coverage-path _coverage -o _coverage/html
 ```
 
 On PowerShell, set `$env:BISECT_FILE` to an absolute prefix before `dune runtest`.

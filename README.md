@@ -8,9 +8,13 @@ The v0.1 parser covers selected ELF, PE, NES, Game Boy, and Game Boy Advance str
 
 BinLens requires OCaml 5.1.1 through 5.5.x and opam 2.2 or newer.
 
+Install the tagged release through opam:
+
 ```console
-opam install binlens
+opam pin add binlens https://github.com/frankischilling/binlens.git#v0.1.0
 ```
+
+The package has not yet been submitted to the central opam repository, so `opam install binlens` without a pin is not available for this release.
 
 To build a checkout:
 
@@ -19,6 +23,7 @@ opam switch create . 5.3.0
 opam install . --deps-only --with-test --with-doc
 opam exec -- dune build
 opam exec -- dune runtest
+opam install .
 ```
 
 ## Commands
