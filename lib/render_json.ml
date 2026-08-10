@@ -138,15 +138,16 @@ let limits limits =
       ("max_work_units", `Int limits.max_work_units)
     ]
 
-let document ~filename ~input_size ~detections ~selected_detection
-    ~limits:limits_value parse_result =
+let document ~filename ~input_size ~input_backend ~detections
+    ~selected_detection ~limits:limits_value parse_result =
   `Assoc
     [ ("schema_version", `String Version.schema_version);
       ("binlens_version", `String Version.version);
       ( "input",
         `Assoc
           [ ("filename", `String filename);
-            ("size", `String (Int64.to_string input_size))
+            ("size", `String (Int64.to_string input_size));
+            ("backend", `String input_backend)
           ] );
       ( "detected_format",
         match selected_detection with

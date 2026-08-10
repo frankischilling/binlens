@@ -52,6 +52,29 @@ let diff_self_empty bytes =
   | Ok (_, result) ->
       Diff.compare ~left_reader:reader ~right_reader:reader result result = []
 
+let file_backend_matches bytes =
+  let filename = Filename.temp_file "binlens-property-" ".bin" in
+  let channel = open_out_bin filename in
+  output_string channel bytes;
+  close_out channel;
+  Fun.protect
+    ~finally:(fun () -> if Sys.file_exists filename then Sys.remove filename)
+    (fun () ->
+      let memory = Reader.of_string bytes in
+      match
+        Input.with_open ~backend:Input.Paged filename (fun input ->
+            let length = Int64.of_int (String.length bytes) in
+            match
+              ( Reader.bytes memory ~offset:0L ~length,
+                Reader.bytes input.Input.reader ~offset:0L ~length )
+            with
+            | Ok left, Ok right -> Bytes.equal left right
+            | Error _, Error _ -> true
+            | _ -> false)
+      with
+      | Ok matches -> matches
+      | Error _ -> false)
+
 let qcheck_tests =
   let configured_count fallback =
     match Sys.getenv_opt "BINLENS_QCHECK_COUNT" with
@@ -72,7 +95,10 @@ let qcheck_tests =
     QCheck.Test.make ~count:long_count
       ~name:"reader copies no more than requested"
       QCheck.(triple string nat_small nat_small)
-      reader_never_overreturns
+      reader_never_overreturns;
+    QCheck.Test.make ~count:(min short_count 250)
+      ~name:"byte and paged readers return identical data" strings
+      file_backend_matches
   ]
 
 let () =

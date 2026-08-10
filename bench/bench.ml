@@ -14,6 +14,21 @@ let parse format bytes =
   | Ok (_, result) -> (reader, result)
   | Error error -> failwith (Error.to_string error)
 
+let with_paged_benchmark operation =
+  let filename = Filename.temp_file "binlens-bench-" ".bin" in
+  let bytes =
+    Bytes.init (4 * 1024 * 1024) (fun index -> Char.chr (index land 0xff))
+  in
+  let channel = open_out_bin filename in
+  output_bytes channel bytes;
+  close_out channel;
+  Fun.protect
+    ~finally:(fun () -> if Sys.file_exists filename then Sys.remove filename)
+    (fun () ->
+      match Input.with_open ~backend:Input.Paged filename operation with
+      | Ok result -> result
+      | Error error -> failwith (Error.to_string error))
+
 let () =
   let elf_bytes = Fixture_builder.elf64_little ()
   and pe_bytes = Fixture_builder.pe32_plus () in
@@ -40,4 +55,13 @@ let () =
               ~rows:20 ~bytes_per_line:8
           in
           ignore (Binlens_tui.Hex_view.render elf_reader root.span window))
-        elf.root)
+        elf.root);
+  with_paged_benchmark (fun input ->
+      let random = Random.State.make [| 0x42494e |] in
+      let maximum = Int64.to_int input.Input.size - 8 in
+      measure "paged random reader u32" 50_000 (fun () ->
+          let offset = Random.State.int random maximum |> Int64.of_int in
+          ignore (Reader.u32 input.reader Endian.Little offset));
+      measure "paged hexadecimal window" 20_000 (fun () ->
+          let offset = Random.State.int random maximum |> Int64.of_int in
+          ignore (Reader.hex input.reader ~offset ~length:64L)))

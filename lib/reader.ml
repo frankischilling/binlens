@@ -1,14 +1,21 @@
-type t = { data : bytes; base : int64; length : int64 }
+type t = { backend : Reader_backend.t; base : int64; length : int64 }
 
-let of_bytes data =
-  let copy = Bytes.copy data in
-  { data = copy; base = 0L; length = Int64.of_int (Bytes.length copy) }
+let of_backend backend =
+  { backend; base = 0L; length = Reader_backend.length backend }
+
+let of_bytes data = Reader_backend.of_bytes data |> of_backend
+let of_owned_bytes data = Reader_backend.of_owned_bytes data |> of_backend
+
+let of_owned_file_descriptor ?page_size descriptor ~length =
+  Reader_backend.of_file_descriptor ?page_size descriptor ~length
+  |> Result.map of_backend
 
 let of_string data =
-  let data = Bytes.of_string data in
-  { data; base = 0L; length = Int64.of_int (Bytes.length data) }
+  Bytes.of_string data |> Reader_backend.of_owned_bytes |> of_backend
 
 let length reader = reader.length
+let backend_kind reader = Reader_backend.kind reader.backend
+let close reader = Reader_backend.close reader.backend
 let absolute_offset reader offset = Span.checked_add reader.base offset
 let checked_add = Span.checked_add
 
@@ -39,23 +46,13 @@ let range reader ~offset ~length =
              "The requested byte range is outside the input.")
     | Ok _ -> Ok ()
 
-let index reader offset =
-  match checked_add reader.base offset with
-  | Error _ as error -> error
-  | Ok absolute ->
-      if Int64.compare absolute (Int64.of_int max_int) > 0 then
-        Error
-          (Error.make ~offset:absolute Error.Overflow "reader.index_overflow"
-             "The byte offset cannot be represented by this runtime.")
-      else Ok (Int64.to_int absolute)
-
 let get_u8 reader offset =
   match range reader ~offset ~length:1L with
   | Error _ as error -> error
   | Ok () -> (
-      match index reader offset with
+      match absolute_offset reader offset with
       | Error _ as error -> error
-      | Ok index -> Ok (Char.code (Bytes.get reader.data index)))
+      | Ok absolute -> Reader_backend.get reader.backend absolute)
 
 let u8 reader offset =
   match get_u8 reader offset with
@@ -65,22 +62,26 @@ let u8 reader offset =
 let fold_integer reader endian offset width =
   match range reader ~offset ~length:(Int64.of_int width) with
   | Error _ as error -> error
-  | Ok () ->
+  | Ok () -> (
       let result = ref 0L in
+      let failure = ref None in
       for byte_index = 0 to width - 1 do
-        let source_index =
-          match endian with
-          | Endian.Little -> byte_index
-          | Endian.Big -> width - byte_index - 1
-        in
-        match get_u8 reader (Int64.add offset (Int64.of_int source_index)) with
-        | Error _ -> assert false
-        | Ok byte ->
-            result :=
-              Int64.logor !result
-                (Int64.shift_left (Int64.of_int byte) (byte_index * 8))
+        if Option.is_none !failure then
+          let source_index =
+            match endian with
+            | Endian.Little -> byte_index
+            | Endian.Big -> width - byte_index - 1
+          in
+          match
+            get_u8 reader (Int64.add offset (Int64.of_int source_index))
+          with
+          | Error error -> failure := Some error
+          | Ok byte ->
+              result :=
+                Int64.logor !result
+                  (Int64.shift_left (Int64.of_int byte) (byte_index * 8))
       done;
-      Ok !result
+      match !failure with None -> Ok !result | Some error -> Error error)
 
 let u16 reader endian offset = fold_integer reader endian offset 2
 let u32 reader endian offset = fold_integer reader endian offset 4
@@ -101,13 +102,14 @@ let slice reader ~offset ~length =
   | Ok () -> (
       match checked_add reader.base offset with
       | Error _ as error -> error
-      | Ok base -> Ok { data = reader.data; base; length })
+      | Ok base -> Ok { backend = reader.backend; base; length })
 
 let bytes ?tracker reader ~offset ~length =
   match range reader ~offset ~length with
   | Error _ as error -> error
   | Ok () -> (
-      if Int64.compare length (Int64.of_int max_int) > 0 then
+      let allocation_limit = min max_int Sys.max_string_length in
+      if Int64.compare length (Int64.of_int allocation_limit) > 0 then
         Error
           (Error.make ~offset ~requested:length Error.Resource_limit
              "reader.copy_too_large"
@@ -122,9 +124,23 @@ let bytes ?tracker reader ~offset ~length =
         match budget with
         | Error _ as error -> error
         | Ok () -> (
-            match index reader offset with
+            match absolute_offset reader offset with
             | Error _ as error -> error
-            | Ok start -> Ok (Bytes.sub reader.data start count)))
+            | Ok absolute -> (
+                try
+                  let output = Bytes.create count in
+                  match
+                    Reader_backend.blit reader.backend ~offset:absolute output
+                      ~output_offset:0 ~length:count
+                  with
+                  | Error _ as error -> error
+                  | Ok () -> Ok output
+                with Out_of_memory ->
+                  Error
+                    (Error.make ~offset ~requested:length Error.Resource_limit
+                       "reader.copy_allocation_failed"
+                       "The runtime could not allocate the requested byte copy.")
+                )))
 
 let fixed_string ?tracker reader ~offset ~length =
   Result.map Bytes.to_string (bytes ?tracker reader ~offset ~length)
@@ -146,14 +162,19 @@ let c_string ?tracker reader ~offset ~max_length =
       in
       let count = ref 0 in
       let scanning = ref true in
+      let failure = ref None in
       while !scanning && !count < scan_length do
         match get_u8 reader (Int64.add offset (Int64.of_int !count)) with
         | Ok 0 -> scanning := false
         | Ok _ -> incr count
-        | Error _ -> scanning := false
+        | Error error ->
+            failure := Some error;
+            scanning := false
       done;
-      let count = !count in
-      fixed_string ?tracker reader ~offset ~length:(Int64.of_int count)
+      match !failure with
+      | Some error -> Error error
+      | None ->
+          fixed_string ?tracker reader ~offset ~length:(Int64.of_int !count)
 
 let align offset alignment =
   if Int64.compare offset 0L < 0 || Int64.compare alignment 1L < 0 then
@@ -181,18 +202,23 @@ let byte reader offset = get_u8 reader offset
 let hex reader ~offset ~length =
   match range reader ~offset ~length with
   | Error _ as error -> error
-  | Ok () when Int64.compare length (Int64.of_int (max_int / 3)) > 0 ->
+  | Ok ()
+    when Int64.compare length (Int64.of_int (Sys.max_string_length / 3)) > 0 ->
       Error
         (Error.make ~offset ~requested:length Error.Resource_limit
            "reader.hex_too_large"
            "The hexadecimal summary would exceed the runtime allocation limit.")
-  | Ok () ->
+  | Ok () -> (
       let buffer = Buffer.create (Int64.to_int length * 3) in
       let count = Int64.to_int length in
+      let failure = ref None in
       for index = 0 to count - 1 do
-        if index > 0 then Buffer.add_char buffer ' ';
-        match get_u8 reader (Int64.add offset (Int64.of_int index)) with
-        | Ok byte -> Buffer.add_string buffer (Printf.sprintf "%02X" byte)
-        | Error _ -> assert false
+        if Option.is_none !failure then (
+          if index > 0 then Buffer.add_char buffer ' ';
+          match get_u8 reader (Int64.add offset (Int64.of_int index)) with
+          | Ok byte -> Buffer.add_string buffer (Printf.sprintf "%02X" byte)
+          | Error error -> failure := Some error)
       done;
-      Ok (Buffer.contents buffer)
+      match !failure with
+      | None -> Ok (Buffer.contents buffer)
+      | Some error -> Error error)

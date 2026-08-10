@@ -10,7 +10,7 @@ Every file read goes through `Reader`. A read succeeds only when all of these co
 2. Offset plus length fits in signed 64-bit range.
 3. The complete range fits in the reader window.
 4. Window base plus relative offset fits in signed 64-bit range.
-5. The absolute byte index fits in the OCaml runtime's `int`.
+5. The absolute offset fits the selected backend's addressing range. Memory indexes and paged seeks use checked conversion to the OCaml runtime's `int`.
 
 Integer reads check the complete width before reading the first byte. Slices share input. Byte and string copies consume the copy budget when a parser tracker is supplied.
 
@@ -18,7 +18,7 @@ Integer reads check the complete width before reading the first byte. Slices sha
 
 `Reader.checked_add` and `Reader.checked_mul` reject negative operands and overflow. `Reader.table_range` checks entry size times count, then validates the full range. A parser checks the table-entry budget before iterating.
 
-ELF and PE offsets whose unsigned bit pattern exceeds signed 64-bit range are rejected as invalid ranges. BinLens can display those values exactly, but the byte backend cannot address them.
+ELF and PE offsets whose unsigned bit pattern exceeds signed 64-bit range are rejected as invalid ranges. BinLens can display those values exactly, but neither input backend can address them. The paged backend also rejects an offset that does not fit the runtime's `int` seek range.
 
 ## Strings and terminal output
 
@@ -37,7 +37,8 @@ The default budgets are:
 - 16 MiB copied by parser string and byte operations
 - 1,000 diagnostics
 - 2,000,000 work units
-- 512 MiB input for the normal byte backend
+- 512 MiB for one byte-backend snapshot
+- one 64 KiB cache page for each paged input
 
 The CLI accepts lower or higher nonnegative node, table, string, and depth values. A reached budget sets `limit_reached`, marks the parse partial, and returns status 5. Raising a limit can increase time and memory use.
 
@@ -55,14 +56,18 @@ ROM payload nodes hold spans and lengths. They do not copy trainer, PRG ROM, CHR
 
 The hardening suite calls every parser with arbitrary byte strings, validates every returned node span, checks deterministic output, and parses every prefix of each generated fixture. The scheduled workflow raises QCheck counts to 10,000.
 
-## Input and file changes
+## Input backends and file changes
 
-The v0.1 byte backend reads a file once and parses that snapshot. It rejects files larger than 512 MiB before allocation. If a file becomes shorter during the read, BinLens returns `input.changed_during_read`. Appends after the initial stat are not included.
+The byte backend reads a file once and parses that snapshot. It rejects files larger than 512 MiB before allocation. If the size changes while the snapshot is being read, BinLens returns `input.changed_during_read`.
 
-Memory mapping and streaming input are deferred. Neither parsing nor detection performs network access, decompression, external commands, dynamic library loading, or code execution.
+The paged backend holds a read-only descriptor and allocates one 64 KiB page, regardless of file size. It checks the observed size before and after setup and around each page fill. A detected change or short read becomes a structured I/O error. Slices share the same descriptor and cache, so a deeply sliced tree does not increase cache memory.
+
+This is not a transactional file snapshot. An overwrite that preserves file size cannot be detected portably, and a previously cached page can represent an earlier version than a later page. Do not modify a file while BinLens is inspecting it. Windows commonly prevents truncation or removal while the read handle is open; Unix tests exercise active truncation detection, while Windows tests verify initialization and cleanup without depending on pathname mutation.
+
+The paged descriptor and cache are intended for one inspection flow, not concurrent reader calls from several threads. Network, archive, compressed, device, writable, and streaming input remain unsupported. Neither parsing nor detection performs network access, decompression, external commands, dynamic library loading, or code execution.
 
 ## Remaining risks
 
 The registry catches unexpected exceptions at the public boundary, but such a diagnostic is still a parser defect. Please report a reproducible `parser.internal_exception` through the security process if it has denial-of-service or memory-safety impact.
 
-OCaml memory allocation can still fail if the host has less memory than a permitted input and configured budgets require. The 512 MiB byte-backend cap limits the request but does not measure current free memory.
+OCaml memory allocation can still fail if the host has less memory than a requested byte snapshot or parser allocation. The 512 MiB byte-backend cap limits one snapshot but does not measure current free memory. The paged backend avoids a full-file copy, but parser budgets still govern copied strings, tree nodes, diagnostics, and work.
