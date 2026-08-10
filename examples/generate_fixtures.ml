@@ -6,8 +6,8 @@ let fixtures =
     ("minimal-pe32.exe", Fixture_builder.pe32);
     ("minimal-pe32-plus.exe", Fixture_builder.pe32_plus);
     ("minimal-ines.nes", fun () -> Fixture_builder.nes ());
-    ("minimal-gameboy.gb", Fixture_builder.gameboy);
-    ("minimal-gba.gba", Fixture_builder.gba)
+    ("minimal-gameboy.gb", fun () -> Fixture_builder.gameboy ());
+    ("minimal-gba.gba", fun () -> Fixture_builder.gba ())
   ]
 
 let ensure_directory path =
