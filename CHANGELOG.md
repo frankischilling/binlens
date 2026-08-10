@@ -5,6 +5,10 @@
 - Resolve ELF extended numbering through section header zero before table iteration.
 - Decode bounded ELF symbol, dynamic, REL, RELA, and note records with exact spans.
 - Identify common DWARF section names and selected MIPS, ARM, and RISC-V header flags.
+- Map PE header and section RVAs to checked file ranges and reject ambiguous overlaps.
+- Parse PE export names and ordinals plus PE32 and PE32+ import thunks.
+- Walk PE resource metadata with cycle, depth, string, entry, and work limits.
+- Parse PE base-relocation blocks, debug directory records, and certificate records.
 - Add registration API version 1 for immutable custom parser registries.
 - Validate duplicate and malformed parser identifiers and file extensions.
 - Apply the built-in detector and parser exception boundaries to custom registries.

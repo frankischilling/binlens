@@ -7,6 +7,8 @@ let fixtures =
     ("metadata-elf64-be.elf", Fixture_builder.elf64_big_metadata);
     ("minimal-pe32.exe", Fixture_builder.pe32);
     ("minimal-pe32-plus.exe", Fixture_builder.pe32_plus);
+    ("directories-pe32.exe", Fixture_builder.pe32_directories);
+    ("directories-pe32-plus.exe", Fixture_builder.pe32_plus_directories);
     ("minimal-ines.nes", fun () -> Fixture_builder.nes ());
     ("minimal-gameboy.gb", fun () -> Fixture_builder.gameboy ());
     ("minimal-gba.gba", fun () -> Fixture_builder.gba ())

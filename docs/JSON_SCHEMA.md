@@ -42,6 +42,25 @@ Nodes use this fixed field order:
 
 `id` is stable within its parent. `path` is the structural diff key. Labels and descriptions are for display.
 
+For example, this excerpt shows that a library name read through a PE import descriptor keeps the string's own byte span even though its node is nested under the descriptor:
+
+```json
+{
+  "id": "library",
+  "path": "pe.directory_mappings[1].imports[0].library",
+  "span": {
+    "offset": "1072",
+    "offset_hex": "0x430",
+    "length": "12",
+    "end": "1084"
+  },
+  "value": {
+    "type": "string",
+    "text": "KERNEL32.dll"
+  }
+}
+```
+
 ## Spans
 
 ```json

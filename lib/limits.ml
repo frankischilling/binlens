@@ -127,4 +127,20 @@ let consume_work tracker amount =
       Ok ()
   | Error error -> Error error
 
+let check_depth tracker depth =
+  if depth > tracker.limits.max_depth then (
+    tracker.limit_reached <- true;
+    Error
+      (resource_error "limit.depth"
+         "The parser recursion-depth limit was reached."))
+  else Ok ()
+
+let check_string_length tracker length =
+  if length < 0 || length > tracker.limits.max_string_bytes then (
+    tracker.limit_reached <- true;
+    Error
+      (resource_error "limit.string_length"
+         "The parser string-length limit was reached."))
+  else Ok ()
+
 let limit_reached tracker = tracker.limit_reached
