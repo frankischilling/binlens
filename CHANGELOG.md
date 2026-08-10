@@ -18,6 +18,10 @@
 - Add NES trainer, PRG ROM, and CHR ROM spans plus PRG and CHR bank counts.
 - Add Game Boy ROM and external RAM bank counts and a checked ROM-image span.
 - Mark truncated declared ROM payloads partial and report trailing bytes separately.
+- Add a bounded 64 KiB paged file backend for inputs above the 512 MiB byte-snapshot limit.
+- Keep reader slices as shared windows over either backend and preserve structured setup, read, change-detection, and close failures.
+- Add `--backend auto|bytes|paged` to file commands and record the selected backend in JSON schema 1.1.
+- Exercise both input backends with unit, property, CLI, sparse-file, cleanup, and random-read benchmark coverage.
 
 ## 0.1.0
 

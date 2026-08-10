@@ -31,10 +31,12 @@ dune exec test/test_formats.exe
 dune exec test/test_diff.exe
 dune exec test/test_arbitrary.exe
 dune exec test/test_tui.exe
+dune exec test/test_registry.exe
+dune exec test/test_input.exe
 dune exec test/test_cli.exe
 ```
 
-Set `BINLENS_QCHECK_COUNT=10000` for the scheduled hardening count.
+`test_input` runs matching reads against byte and paged storage, checks shared slices and cleanup, exercises active truncation where the platform permits it, and uses a sparse file above 512 MiB without committing a large fixture. Set `BINLENS_QCHECK_COUNT=10000` for the scheduled hardening count. The backend-equivalence property caps itself at 250 temporary files per run.
 
 ## Fixtures
 
@@ -68,7 +70,7 @@ On PowerShell, set `$env:BISECT_FILE` to an absolute prefix before `dune runtest
 dune exec bench/bench.exe
 ```
 
-The harness measures sequential reads, ELF and PE parsing, text and JSON rendering, structural diff, and hex-window rendering. Results are local measurements. Do not put a performance claim in the README without recording the compiler, operating system, hardware, command, iteration count, and output.
+The harness measures sequential reads, ELF and PE parsing, text and JSON rendering, structural diff, hex-window rendering, paged random reads, and paged hexadecimal windows. It creates and removes a 4 MiB temporary file for the paged cases. Results are local measurements. Do not put a performance claim in the README without recording the compiler, operating system, hardware, command, iteration count, and output.
 
 ## Adding a parser
 

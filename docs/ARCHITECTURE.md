@@ -4,7 +4,11 @@ BinLens has four layers: checked byte access, a render-independent parse model, 
 
 ## Checked byte access
 
-`Reader.t` is a window over immutable bytes. A window stores an `int64` base and length. Reads validate the complete relative range, add the base with checked arithmetic, and only then convert the absolute offset to OCaml `int` for byte indexing.
+`Reader.t` is an `int64` base-and-length window over `Reader_backend.t`. The memory backend owns an immutable byte snapshot. The paged backend owns a read-only file descriptor and one 64 KiB cache page. Reads validate the complete relative range and add the base with checked arithmetic before asking the backend for data.
+
+`Reader.slice` creates another window over the same backend. It does not copy bytes or open another descriptor. The paged backend checks the file size when filling a page, uses checked conversion before seeking, and returns structured setup, read, change-detection, and close failures.
+
+`Input` selects and owns the backend. `Auto` snapshots files up to 512 MiB and uses paged reads above that threshold. `Bytes` and `Paged` force one policy. CLI and TUI commands keep the input open through detection, parsing, rendering, and hexadecimal access, then close it through `Fun.protect`.
 
 `Span.t` stores an `int64` start and length. Construction rejects negative values and an end offset that exceeds signed 64-bit range. A node span must fit inside the input before `Parse_context` accepts it.
 
@@ -36,6 +40,6 @@ A custom parser is ordinary OCaml code linked by the host application and runs w
 
 ## Command and TUI layers
 
-Cmdliner owns argument parsing and maps command failures to the documented statuses. JSON commands keep operational messages on stderr.
+Cmdliner owns argument parsing and maps command failures to the documented statuses. JSON commands keep operational messages on stderr. Every file command accepts the same backend policy.
 
 The TUI parses once. `Model` stores expansion, selection, pane, search, display toggles, and terminal dimensions. `Hex_view` builds only the visible byte window. `terml` handles input and terminal commands, while `terminal_size` provides portable resize polling. Cleanup restores raw mode, cursor visibility, line wrapping, and the primary screen through `Fun.protect`.

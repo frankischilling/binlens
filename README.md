@@ -31,6 +31,7 @@ opam install .
 ```console
 binlens detect program.exe
 binlens inspect program.exe
+binlens inspect --backend paged large-program.exe
 binlens json --output program.json program.exe
 binlens validate --strict program.exe
 binlens diff --check old.exe new.exe
@@ -39,7 +40,7 @@ binlens formats
 binlens version
 ```
 
-Use `--format elf`, `--format pe`, `--format nes`, `--format gameboy`, or `--format gba` to bypass automatic detection. Parser limits can be changed with `--max-nodes`, `--max-string-bytes`, `--max-table-entries`, and `--max-depth`.
+Use `--format elf`, `--format pe`, `--format nes`, `--format gameboy`, or `--format gba` to bypass automatic detection. `--backend auto` takes a byte snapshot of files up to 512 MiB and uses bounded paged reads for larger files. Choose `--backend bytes` when a stable snapshot matters, or `--backend paged` to keep memory use independent of file size. Parser limits can be changed with `--max-nodes`, `--max-string-bytes`, `--max-table-entries`, and `--max-depth`.
 
 ## Text inspection
 
@@ -83,9 +84,13 @@ Unsigned values use decimal and hexadecimal strings, so a 64-bit value never pas
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "binlens_version": "0.1.0",
-  "input": { "filename": "minimal-elf64-le.elf", "size": "329" },
+  "input": {
+    "filename": "minimal-elf64-le.elf",
+    "size": "329",
+    "backend": "bytes"
+  },
   "detected_format": {
     "format": "elf",
     "confidence": 100,
@@ -126,9 +131,10 @@ BinLens checks every read and offset calculation. Declared counts are capped bef
 | Total copied bytes | 16 MiB |
 | Diagnostics | 1,000 |
 | Work units | 2,000,000 |
-| Input for the byte backend | 512 MiB |
+| Byte-snapshot input | 512 MiB |
+| Paged input cache | 64 KiB |
 
-A limit failure returns status 5. [Parser safety](docs/PARSER_SAFETY.md) describes the trust boundary and remaining risks.
+A file above the byte-snapshot limit uses the paged backend under `--backend auto`. The paged backend does not raise parser budgets, and file offsets must still fit the platform's OCaml seek range. A parser limit failure returns status 5. [Parser safety](docs/PARSER_SAFETY.md) describes the trust boundary, concurrent file changes, and remaining risks.
 
 ## Exit statuses
 
@@ -164,6 +170,6 @@ Registration API version 1 validates parser identifiers and extensions. BinLens 
 
 ## Roadmap
 
-The [v0.1.0 milestone](https://github.com/frankischilling/binlens/milestone/1) records the initial release. The [v0.2.0 milestone](https://github.com/frankischilling/binlens/milestone/2) records completed ELF, PE, ROM, and registry work and tracks the remaining [scalable read-only input](https://github.com/frankischilling/binlens/issues/20) task.
+The [v0.1.0 milestone](https://github.com/frankischilling/binlens/milestone/1) records the initial release. The [v0.2.0 milestone](https://github.com/frankischilling/binlens/milestone/2) records the ELF, PE, ROM, registry, and scalable input work completed for the next release.
 
 BinLens is available under the MIT license. See [CONTRIBUTING.md](CONTRIBUTING.md) before sending a change and [SECURITY.md](SECURITY.md) for private vulnerability reports.

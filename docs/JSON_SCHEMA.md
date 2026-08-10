@@ -4,7 +4,7 @@
 
 ## Versioning
 
-The top-level `schema_version` is `1.0` for BinLens v0.1.0. A new incompatible shape will change the major schema component. New optional fields may appear in a compatible minor schema revision.
+The current top-level `schema_version` is `1.1`. Schema 1.1 adds the input backend name to the 1.0 document released with BinLens v0.1.0. A new incompatible shape will change the major schema component. New fields may appear in a compatible minor schema revision.
 
 ## Top-level object
 
@@ -12,7 +12,7 @@ The top-level `schema_version` is `1.0` for BinLens v0.1.0. A new incompatible s
 | --- | --- | --- |
 | `schema_version` | string | JSON contract version. |
 | `binlens_version` | string | Program or library version that produced the document. |
-| `input` | object | Filename and decimal byte size string. |
+| `input` | object | Filename, decimal byte size string, and selected backend. |
 | `detected_format` | detection or null | Detection record for the selected parser. |
 | `detections` | array | Every registry candidate in confidence and format-ID order. |
 | `limits` | object | Effective parser budgets. |
@@ -24,6 +24,10 @@ The top-level `schema_version` is `1.0` for BinLens v0.1.0. A new incompatible s
 ## Detection
 
 A detection record contains `format`, `display_name`, integer `confidence`, boolean `definitive`, decimal string `required_minimum_length`, ordered `evidence`, and ordered `contradictions`.
+
+## Input
+
+The `input` object contains `filename`, decimal string `size`, and `backend`. The backend is `bytes` for an in-memory snapshot or `paged` for bounded file reads. It records how the command actually opened the file, including an automatic selection.
 
 ## Node
 
