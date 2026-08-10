@@ -9,6 +9,16 @@ let read_all channel =
    with End_of_file -> ());
   Buffer.contents buffer
 
+let contains text fragment =
+  let text_length = String.length text
+  and fragment_length = String.length fragment in
+  let rec search offset =
+    if offset + fragment_length > text_length then false
+    else if String.sub text offset fragment_length = fragment then true
+    else search (offset + 1)
+  in
+  search 0
+
 let run arguments =
   let command = Array.of_list (executable :: arguments) in
   let stdout, stdin, stderr =
@@ -42,7 +52,15 @@ let test_version_and_formats () =
     (String.starts_with ~prefix:"binlens 0.1.0" output);
   let code, output, _ = run [ "formats"; "--json" ] in
   Alcotest.(check int) "formats status" 0 code;
-  ignore (Yojson.Safe.from_string output)
+  ignore (Yojson.Safe.from_string output);
+  let code, output, _ = run [ "inspect"; "--help=plain" ] in
+  Alcotest.(check int) "help status" 0 code;
+  Alcotest.(check bool)
+    "documented exit status" true
+    (contains output "6   Structural differences were found");
+  Alcotest.(check bool)
+    "no Cmdliner internal status" false
+    (contains output "124 on command line parsing errors")
 
 let test_inspect_detect_json () =
   with_file (Fixture_builder.nes ()) (fun filename ->

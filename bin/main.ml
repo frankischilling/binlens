@@ -9,6 +9,23 @@ let exit_limit = 5
 let exit_different = 6
 let stop code = Stdlib.exit code
 
+let exit_infos =
+  [ Cmd.Exit.info 0 ~doc:"The command completed successfully.";
+    Cmd.Exit.info exit_operational
+      ~doc:"A file, output, or other operational failure occurred.";
+    Cmd.Exit.info exit_invalid_arguments
+      ~doc:"Command syntax or an option value was invalid.";
+    Cmd.Exit.info exit_unrecognized
+      ~doc:"No supported format matched the input.";
+    Cmd.Exit.info exit_malformed
+      ~doc:"The format was recognized or forced, but the input was malformed.";
+    Cmd.Exit.info exit_limit ~doc:"A parser resource limit was reached.";
+    Cmd.Exit.info exit_different
+      ~doc:"Structural differences were found in diff check mode."
+  ]
+
+let command_info name ~doc = Cmd.info name ~doc ~exits:exit_infos
+
 let print_error error =
   prerr_endline (Sanitize.text (Error.to_string error));
   flush stderr
@@ -408,7 +425,7 @@ let inspect_cmd =
       $ offset $ json $ no_color $ output)
   in
   Cmd.v
-    (Cmd.info "inspect"
+    (command_info "inspect"
        ~doc:"Print a structured tree tied to exact byte ranges.")
     term
 
@@ -419,7 +436,9 @@ let json_cmd =
       const run_json $ filename $ format_arg $ max_nodes $ max_string_bytes
       $ max_table_entries $ max_depth $ output)
   in
-  Cmd.v (Cmd.info "json" ~doc:"Export a versioned JSON parse document.") term
+  Cmd.v
+    (command_info "json" ~doc:"Export a versioned JSON parse document.")
+    term
 
 let validate_cmd =
   let filename = file 0 "Binary file to validate." in
@@ -434,7 +453,7 @@ let validate_cmd =
       $ max_string_bytes $ max_table_entries $ max_depth)
   in
   Cmd.v
-    (Cmd.info "validate" ~doc:"Parse a file and report warnings and errors.")
+    (command_info "validate" ~doc:"Parse a file and report warnings and errors.")
     term
 
 let detect_cmd =
@@ -449,7 +468,8 @@ let detect_cmd =
       $ max_table_entries $ max_depth)
   in
   Cmd.v
-    (Cmd.info "detect" ~doc:"List candidate formats, confidence, and evidence.")
+    (command_info "detect"
+       ~doc:"List candidate formats, confidence, and evidence.")
     term
 
 let formats_cmd =
@@ -457,7 +477,8 @@ let formats_cmd =
     Arg.(value & flag & info [ "json" ] ~doc:"Write the coverage list as JSON.")
   in
   Cmd.v
-    (Cmd.info "formats" ~doc:"List supported formats and exact parser coverage.")
+    (command_info "formats"
+       ~doc:"List supported formats and exact parser coverage.")
     Term.(const run_formats $ json)
 
 let diff_cmd =
@@ -488,7 +509,7 @@ let diff_cmd =
       $ max_nodes $ max_string_bytes $ max_table_entries $ max_depth $ output)
   in
   Cmd.v
-    (Cmd.info "diff"
+    (command_info "diff"
        ~doc:"Compare two binaries by semantic paths and byte spans.")
     term
 
@@ -500,18 +521,18 @@ let tui_cmd =
       $ max_table_entries $ max_depth)
   in
   Cmd.v
-    (Cmd.info "tui"
+    (command_info "tui"
        ~doc:"Open the synchronized parse-tree and hexadecimal explorer.")
     term
 
 let version_cmd =
   Cmd.v
-    (Cmd.info "version" ~doc:"Print version and build metadata.")
+    (command_info "version" ~doc:"Print version and build metadata.")
     Term.(const run_version $ const ())
 
 let command =
   let info =
-    Cmd.info "binlens" ~version:Version.version
+    Cmd.info "binlens" ~version:Version.version ~exits:exit_infos
       ~doc:
         "Inspect binary formats as structured fields tied to exact byte ranges."
       ~man:
@@ -542,4 +563,6 @@ let command =
 let () =
   let status = Cmd.eval command in
   Stdlib.exit
-    (if status = Cmd.Exit.cli_error then exit_invalid_arguments else status)
+    (if status = Cmd.Exit.cli_error then exit_invalid_arguments
+     else if status >= 0 && status <= exit_different then status
+     else exit_operational)
