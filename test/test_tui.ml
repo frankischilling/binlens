@@ -45,6 +45,9 @@ let test_resize_and_hex_window () =
   let resized = Model.resize model ~rows:2 ~cols:3 in
   Alcotest.(check int) "rows" 2 resized.rows;
   Alcotest.(check int) "cols" 3 resized.cols;
+  let bounded = Model.resize model ~rows:max_int ~cols:max_int in
+  Alcotest.(check int) "bounded rows" Model.max_rows bounded.rows;
+  Alcotest.(check int) "bounded columns" Model.max_cols bounded.cols;
   let selected = Span.unsafe ~start:2L ~length:100L in
   let window =
     Hex_view.calculate ~input_length:1_000L ~selected ~rows:2 ~bytes_per_line:8

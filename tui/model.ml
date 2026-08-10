@@ -22,6 +22,10 @@ type t =
     search_index : int
   }
 
+let max_rows = 1_000
+let max_cols = 1_000
+let bounded value maximum = max 1 (min value maximum)
+
 let flatten_visible root expanded =
   let rec walk depth node output =
     let output = { node; depth } :: output in
@@ -34,6 +38,7 @@ let flatten_visible root expanded =
   walk 0 root [] |> List.rev |> Array.of_list
 
 let create ~reader ~root ~rows ~cols =
+  let rows = bounded rows max_rows and cols = bounded cols max_cols in
   let expanded = String_set.singleton root.Node.path in
   { root;
     reader;
@@ -118,7 +123,7 @@ let toggle_expand model =
   | Some _ -> expand model
 
 let resize model ~rows ~cols =
-  { model with rows = max 1 rows; cols = max 1 cols }
+  { model with rows = bounded rows max_rows; cols = bounded cols max_cols }
 
 let matches query node =
   if String.equal query "" then true

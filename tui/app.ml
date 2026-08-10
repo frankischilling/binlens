@@ -1,5 +1,7 @@
 module Tui_input = Input
 
+let max_prompt_bytes = 4_096
+
 let getenv_int name fallback =
   match Sys.getenv_opt name with
   | None -> fallback
@@ -42,7 +44,8 @@ let rec prompt ~filename ~format model label buffer =
         Buffer.truncate buffer (Buffer.length buffer - 1);
       prompt ~filename ~format model label buffer
   | Some (Tui_input.Character value) ->
-      Buffer.add_string buffer value;
+      if Buffer.length buffer <= max_prompt_bytes - String.length value then
+        Buffer.add_string buffer value;
       prompt ~filename ~format model label buffer
   | Some _ -> prompt ~filename ~format model label buffer
 

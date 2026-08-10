@@ -12,7 +12,8 @@ let align_down value alignment =
   Int64.sub value (Int64.rem value (Int64.of_int alignment))
 
 let calculate ~input_length ~selected ~rows ~bytes_per_line =
-  let rows = max 1 rows and bytes_per_line = max 1 bytes_per_line in
+  let rows = max 1 (min rows Model.max_rows)
+  and bytes_per_line = max 1 (min bytes_per_line 256) in
   let selected_start = Span.start selected in
   let visible_bytes = Int64.of_int (rows * bytes_per_line) in
   let half = Int64.div visible_bytes 2L in
