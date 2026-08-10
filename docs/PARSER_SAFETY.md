@@ -43,7 +43,9 @@ The CLI accepts lower or higher nonnegative node, table, string, and depth value
 
 ## Termination
 
-Format loops use validated, budgeted counts. Null-terminated strings have a maximum. The Game Boy global checksum runs only when the file length fits the work budget. Tree depth is fixed by the current parsers and bounded by the model limit.
+Format loops use validated, budgeted counts. Null-terminated strings have a maximum. The Game Boy global checksum runs only when the file length fits the work budget. Game Boy Advance save-signature detection consumes one work unit for each candidate byte offset and stops when the budget is exhausted. Tree depth is fixed by the current parsers and bounded by the model limit.
+
+ROM payload nodes hold spans and lengths. They do not copy trainer, PRG ROM, CHR ROM, or Game Boy ROM bytes into the tree.
 
 The hardening suite calls every parser with arbitrary byte strings, validates every returned node span, checks deterministic output, and parses every prefix of each generated fixture. The scheduled workflow raises QCheck counts to 10,000.
 
