@@ -67,6 +67,14 @@ let test_registration_errors () =
     (Registry.create [ parser ~id:"Bad" ~extensions:[ ".bad" ] () ]);
   check_error "registry.invalid_extension"
     (Registry.create [ parser ~id:"bad" ~extensions:[ "bad" ] () ]);
+  (match
+     Registry.create [ parser ~id:"escape" ~extensions:[ ".\027bad" ] () ]
+   with
+  | Ok _ -> Alcotest.fail "expected escaped extension error"
+  | Error error ->
+      Alcotest.(check bool)
+        "invalid extension is escaped" false
+        (String.contains error.Error.message '\027'));
   check_error "registry.duplicate_id"
     (Registry.create
        [ parser ~id:"same" ~extensions:[ ".one" ] ();

@@ -36,11 +36,11 @@ let validate parsers =
     | extension :: rest ->
         if not (valid_extension extension) then
           registration_error "registry.invalid_extension"
-            (Printf.sprintf "Parser %s has an invalid file extension: %s."
+            (Printf.sprintf "Parser %s has an invalid file extension: %S."
                parser_id extension)
         else if Hashtbl.mem extensions extension then
           registration_error "registry.duplicate_extension"
-            (Printf.sprintf "More than one parser registered file extension %s."
+            (Printf.sprintf "More than one parser registered file extension %S."
                extension)
         else (
           Hashtbl.add extensions extension parser_id;
