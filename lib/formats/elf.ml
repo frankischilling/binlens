@@ -96,9 +96,24 @@ let add_field context children ?description ?metadata ~parent ~id ~label ~offset
   | None -> children
   | Some node -> node :: children
 
+let consume_entries context ~component count =
+  match
+    Limits.consume_table_entries_int64 context.Parse_context.tracker count
+  with
+  | Error error ->
+      Parse_context.error_from_reader context ~component error;
+      None
+  | Ok () -> (
+      let count = Int64.to_int count in
+      match Limits.consume_work context.Parse_context.tracker count with
+      | Ok () -> Some count
+      | Error error ->
+          Parse_context.error_from_reader context ~component error;
+          None)
+
 let parse_program_headers context ~class_ ~endian ~table_offset ~entry_size
     ~count =
-  if count = 0 then None
+  if Int64.equal count 0L then None
   else
     let expected = if class_ = 1 then 32 else 56 in
     if entry_size < expected then (
@@ -107,14 +122,9 @@ let parse_program_headers context ~class_ ~endian ~table_offset ~entry_size
         ~component:"elf.program_headers" ~recoverable:true ();
       None)
     else
-      match
-        Limits.consume_table_entries context.Parse_context.tracker count
-      with
-      | Error error ->
-          Parse_context.error_from_reader context
-            ~component:"elf.program_headers" error;
-          None
-      | Ok () -> (
+      match consume_entries context ~component:"elf.program_headers" count with
+      | None -> None
+      | Some count -> (
           match
             Reader.table_range context.Parse_context.reader ~offset:table_offset
               ~entry_size:(Int64.of_int entry_size) ~count:(Int64.of_int count)
@@ -289,7 +299,7 @@ type section_info =
 
 let parse_section_headers context ~class_ ~endian ~table_offset ~entry_size
     ~count ~string_index =
-  if count = 0 then None
+  if Int64.equal count 0L then None
   else
     let expected = if class_ = 1 then 40 else 64 in
     if entry_size < expected then (
@@ -298,14 +308,9 @@ let parse_section_headers context ~class_ ~endian ~table_offset ~entry_size
         ~component:"elf.section_headers" ~recoverable:true ();
       None)
     else
-      match
-        Limits.consume_table_entries context.Parse_context.tracker count
-      with
-      | Error error ->
-          Parse_context.error_from_reader context
-            ~component:"elf.section_headers" error;
-          None
-      | Ok () -> (
+      match consume_entries context ~component:"elf.section_headers" count with
+      | None -> None
+      | Some count -> (
           match
             Reader.table_range context.Parse_context.reader ~offset:table_offset
               ~entry_size:(Int64.of_int entry_size) ~count:(Int64.of_int count)
@@ -448,7 +453,10 @@ let parse_section_headers context ~class_ ~endian ~table_offset ~entry_size
               done;
               let infos = List.rev !infos in
               let string_table =
-                if string_index < 0 || string_index >= count then (
+                if
+                  Int64.compare string_index 0L < 0
+                  || Int64.compare string_index (Int64.of_int count) >= 0
+                then (
                   Parse_context.warning context
                     ~code:"elf.invalid_string_table_index"
                     ~message:
@@ -457,7 +465,7 @@ let parse_section_headers context ~class_ ~endian ~table_offset ~entry_size
                     ~component:"elf.section_headers" ();
                   None)
                 else
-                  let entry = List.nth infos string_index in
+                  let entry = List.nth infos (Int64.to_int string_index) in
                   match (entry.file_offset, entry.file_size) with
                   | Some offset, Some length -> (
                       match
@@ -545,6 +553,113 @@ let parse_section_headers context ~class_ ~endian ~table_offset ~entry_size
                 ~span:table_span
                 ~value:(Value.Collection (List.length nodes))
                 ~children:nodes ())
+
+type resolved_counts =
+  { program_count : int64 option;
+    section_count : int64 option;
+    string_index : int64 option;
+    fields : Node.t list
+  }
+
+let resolve_extended_counts context ~class_ ~endian ~section_offset
+    ~section_entry_size ~program_count ~section_count ~string_index =
+  let extended_program = Int64.equal program_count 0xffffL in
+  let extended_sections =
+    Int64.equal section_count 0L && not (Int64.equal section_offset 0L)
+  in
+  let extended_strings = Int64.equal string_index 0xffffL in
+  let fallback () =
+    { program_count = (if extended_program then None else Some program_count);
+      section_count = (if extended_sections then None else Some section_count);
+      string_index = (if extended_strings then None else Some string_index);
+      fields = []
+    }
+  in
+  if not (extended_program || extended_sections || extended_strings) then
+    { program_count = Some program_count;
+      section_count = Some section_count;
+      string_index = Some string_index;
+      fields = []
+    }
+  else if Int64.equal section_offset 0L then (
+    Parse_context.error context
+      ~code:"elf.extended_numbering_without_section_zero"
+      ~message:
+        "ELF extended numbering requires section header zero, but the section \
+         +         table offset is zero."
+      ~component:"elf.extended_numbering" ~recoverable:true ();
+    fallback ())
+  else
+    let expected = if class_ = 1 then 40 else 64 in
+    if Int64.compare section_entry_size (Int64.of_int expected) < 0 then (
+      Parse_context.error context ~code:"elf.extended_entry_too_small"
+        ~message:
+          "Section header zero is too small to hold ELF extended numbering."
+        ~component:"elf.extended_numbering" ~recoverable:true ();
+      fallback ())
+    else
+      match
+        Reader.range context.Parse_context.reader ~offset:section_offset
+          ~length:section_entry_size
+      with
+      | Error error ->
+          Parse_context.error_from_reader context
+            ~component:"elf.extended_numbering" error;
+          fallback ()
+      | Ok () ->
+          let read32 relative =
+            Parser_common.u32 context endian (Int64.add section_offset relative)
+          in
+          let read_size () =
+            if class_ = 1 then read32 20L
+            else Parser_common.u64 context endian (Int64.add section_offset 32L)
+          in
+          let resolved_program =
+            if extended_program then read32 (if class_ = 1 then 28L else 44L)
+            else Some program_count
+          in
+          let resolved_sections =
+            if extended_sections then read_size () else Some section_count
+          in
+          let resolved_strings =
+            if extended_strings then read32 (if class_ = 1 then 24L else 40L)
+            else Some string_index
+          in
+          let fields = ref [] in
+          let add id label relative length width value =
+            match value with
+            | None -> ()
+            | Some value ->
+                fields :=
+                  add_field context !fields ~parent:"elf" ~id ~label
+                    ~offset:(Int64.add section_offset relative)
+                    ~length
+                    (Value.unsigned width value)
+          in
+          if extended_program then
+            add "resolved_program_header_count" "Resolved program-header count"
+              (if class_ = 1 then 28L else 44L)
+              4L 32 resolved_program;
+          if extended_sections then
+            add "resolved_section_header_count" "Resolved section-header count"
+              (if class_ = 1 then 20L else 32L)
+              (if class_ = 1 then 4L else 8L)
+              (if class_ = 1 then 32 else 64)
+              resolved_sections;
+          if extended_strings then
+            add "resolved_section_name_string_table_index"
+              "Resolved section-name string-table index"
+              (if class_ = 1 then 24L else 40L)
+              4L 32 resolved_strings;
+          Parse_context.information context ~code:"elf.extended_numbering"
+            ~message:
+              "ELF table counts were resolved through section header zero."
+            ~component:"elf.extended_numbering" ();
+          { program_count = resolved_program;
+            section_count = resolved_sections;
+            string_index = resolved_strings;
+            fields = List.rev !fields
+          }
 
 let parse limits reader =
   let context = Parse_context.create ~reader ~source_format:id limits in
@@ -716,24 +831,44 @@ let parse limits reader =
                  header."
               ~component:"elf.header" ()
         | _ -> ());
-        (match (program_offset, program_entry_size, program_count) with
+        let resolved =
+          match
+            ( section_offset,
+              section_entry_size,
+              program_count,
+              section_count,
+              string_index )
+          with
+          | ( Some section_offset,
+              Some section_entry_size,
+              Some program_count,
+              Some section_count,
+              Some string_index ) ->
+              resolve_extended_counts context ~class_ ~endian ~section_offset
+                ~section_entry_size ~program_count ~section_count ~string_index
+          | _ -> { program_count; section_count; string_index; fields = [] }
+        in
+        children := List.rev_append resolved.fields !children;
+        (match (program_offset, program_entry_size, resolved.program_count) with
         | Some offset, Some size, Some count -> (
             let node =
               parse_program_headers context ~class_ ~endian ~table_offset:offset
-                ~entry_size:(Int64.to_int size) ~count:(Int64.to_int count)
+                ~entry_size:(Int64.to_int size) ~count
             in
             match node with
             | Some node -> children := node :: !children
             | None -> ())
         | _ -> ());
         match
-          (section_offset, section_entry_size, section_count, string_index)
+          ( section_offset,
+            section_entry_size,
+            resolved.section_count,
+            resolved.string_index )
         with
         | Some offset, Some size, Some count, Some index -> (
             let node =
               parse_section_headers context ~class_ ~endian ~table_offset:offset
-                ~entry_size:(Int64.to_int size) ~count:(Int64.to_int count)
-                ~string_index:(Int64.to_int index)
+                ~entry_size:(Int64.to_int size) ~count ~string_index:index
             in
             match node with
             | Some node -> children := node :: !children

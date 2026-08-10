@@ -122,6 +122,30 @@ let elf32_big () = elf ~class_:1 ~endian:Endian.Big
 let elf64_little () = elf ~class_:2 ~endian:Endian.Little
 let elf64_big () = elf ~class_:2 ~endian:Endian.Big
 
+let elf_extended ~class_ ~endian =
+  let bytes = elf ~class_ ~endian in
+  let is_32 = class_ = 1 in
+  let header_size = if is_32 then 52 else 64 in
+  let program_size = if is_32 then 32 else 56 in
+  let section_offset = header_size + program_size in
+  set_u16 bytes endian (if is_32 then 44 else 56) 0xffff;
+  set_u16 bytes endian (if is_32 then 48 else 60) 0;
+  set_u16 bytes endian (if is_32 then 50 else 62) 0xffff;
+  if is_32 then (
+    set_u32 bytes endian (section_offset + 20) 3L;
+    set_u32 bytes endian (section_offset + 24) 2L;
+    set_u32 bytes endian (section_offset + 28) 1L)
+  else (
+    set_u64 bytes endian (section_offset + 32) 3L;
+    set_u32 bytes endian (section_offset + 40) 2L;
+    set_u32 bytes endian (section_offset + 44) 1L);
+  bytes
+
+let elf32_little_extended () = elf_extended ~class_:1 ~endian:Endian.Little
+let elf32_big_extended () = elf_extended ~class_:1 ~endian:Endian.Big
+let elf64_little_extended () = elf_extended ~class_:2 ~endian:Endian.Little
+let elf64_big_extended () = elf_extended ~class_:2 ~endian:Endian.Big
+
 let pe ~plus =
   let pe_offset = 0x80 in
   let optional_size = if plus then 240 else 224 in

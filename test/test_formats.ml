@@ -48,6 +48,30 @@ let test_elf_variants () =
       Fixture_builder.elf64_big ()
     ]
 
+let test_elf_extended_numbering () =
+  List.iter
+    (fun bytes ->
+      let result = parse "elf" bytes in
+      assert_no_errors result;
+      assert_path result "elf.resolved_program_header_count";
+      assert_path result "elf.resolved_section_header_count";
+      assert_path result "elf.resolved_section_name_string_table_index";
+      assert_path result "elf.program_headers[0].offset";
+      assert_path result "elf.section_headers[1].name")
+    [ Fixture_builder.elf32_little_extended ();
+      Fixture_builder.elf32_big_extended ();
+      Fixture_builder.elf64_little_extended ();
+      Fixture_builder.elf64_big_extended ()
+    ];
+  let result = parse "elf" (Fixture_builder.elf32_little_extended ()) in
+  let sections = require_path result "elf.resolved_section_header_count" in
+  Alcotest.(check int64)
+    "resolved count span" 104L
+    (Span.start sections.Node.span);
+  Alcotest.(check int64)
+    "resolved count length" 4L
+    (Span.length sections.Node.span)
+
 let test_elf_malformed () =
   let invalid_class =
     Fixture_builder.corrupt_u8 (Fixture_builder.elf32_little ()) 4 9
@@ -61,7 +85,15 @@ let test_elf_malformed () =
   let outside = Bytes.copy (Fixture_builder.elf32_little ()) in
   Fixture_builder.set_u32 outside Endian.Little 32 Int64.max_int;
   let result = parse "elf" outside in
-  Alcotest.(check bool) "outside table partial" true result.partial
+  Alcotest.(check bool) "outside table partial" true result.partial;
+  let small_entry = Fixture_builder.elf32_little_extended () in
+  Fixture_builder.set_u16 small_entry Endian.Little 46 20;
+  let result = parse "elf" small_entry in
+  Alcotest.(check bool) "extended entry partial" true result.partial;
+  let huge_count = Fixture_builder.elf32_little_extended () in
+  Fixture_builder.set_u32 huge_count Endian.Little 104 0xffff_ffffL;
+  let result = parse "elf" huge_count in
+  Alcotest.(check bool) "extended count limit" true result.limit_reached
 
 let test_pe_variants () =
   List.iter
@@ -96,7 +128,7 @@ let test_pe_malformed () =
 
 let test_parser_limits_and_ranges () =
   let elf = Bytes.copy (Fixture_builder.elf32_little ()) in
-  Fixture_builder.set_u16 elf Endian.Little 44 0xffff;
+  Fixture_builder.set_u16 elf Endian.Little 44 0xfffe;
   let result = parse "elf" elf in
   Alcotest.(check bool) "ELF table limit" true result.limit_reached;
   let pe = Bytes.copy (Fixture_builder.pe32 ()) in
@@ -281,6 +313,8 @@ let () =
     [ ( "ELF",
         [ Alcotest.test_case "four class and endian variants" `Quick
             test_elf_variants;
+          Alcotest.test_case "extended numbering" `Quick
+            test_elf_extended_numbering;
           Alcotest.test_case "malformed" `Quick test_elf_malformed
         ] );
       ( "PE",
