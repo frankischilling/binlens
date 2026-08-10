@@ -60,11 +60,14 @@ let test_version_and_formats () =
     (contains output "6   Structural differences were found");
   Alcotest.(check bool)
     "no Cmdliner internal status" false
-    (contains output "124 on command line parsing errors")
+    (contains output "124 on command line parsing errors");
+  Alcotest.(check bool) "backend help" true (contains output "--backend")
 
 let test_inspect_detect_json () =
   with_file (Fixture_builder.nes ()) (fun filename ->
-      let code, output, errors = run [ "detect"; filename ] in
+      let code, output, errors =
+        run [ "detect"; "--backend"; "paged"; filename ]
+      in
       Alcotest.(check int) "detect status" 0 code;
       Alcotest.(check bool)
         "detect NES" true
@@ -74,13 +77,19 @@ let test_inspect_detect_json () =
       Alcotest.(check int) "inspect status" 0 code;
       Alcotest.(check bool) "tree" true (String.contains output 'M');
       Alcotest.(check string) "inspect stderr" "" errors;
-      let code, output, errors = run [ "json"; filename ] in
+      let code, output, errors =
+        run [ "json"; "--backend"; "paged"; filename ]
+      in
       Alcotest.(check int) "JSON status" 0 code;
       Alcotest.(check string) "JSON stderr" "" errors;
       let json = Yojson.Safe.from_string output in
       Alcotest.(check string)
-        "schema" "1.0"
-        Yojson.Safe.Util.(json |> member "schema_version" |> to_string))
+        "schema" "1.1"
+        Yojson.Safe.Util.(json |> member "schema_version" |> to_string);
+      Alcotest.(check string)
+        "paged backend" "paged"
+        Yojson.Safe.Util.(
+          json |> member "input" |> member "backend" |> to_string))
 
 let test_validate_and_arguments () =
   with_file Bytes.empty (fun filename ->

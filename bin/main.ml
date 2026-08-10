@@ -7,7 +7,13 @@ let exit_unrecognized = 3
 let exit_malformed = 4
 let exit_limit = 5
 let exit_different = 6
-let stop code = Stdlib.exit code
+
+exception Stop of int
+
+let stop code = raise (Stop code)
+
+let command_boundary operation =
+  try operation () with Stop code -> Stdlib.exit code
 
 let exit_infos =
   [ Cmd.Exit.info 0 ~doc:"The command completed successfully.";
@@ -46,12 +52,20 @@ let make_limits max_nodes max_string_bytes max_table_entries max_depth =
     max_depth
   }
 
-let load filename =
-  match Input.read filename with
-  | Ok input -> input
+let with_input backend filename operation =
+  match Input.read ~backend filename with
   | Error error ->
       print_error error;
       stop exit_operational
+  | Ok input ->
+      Fun.protect
+        ~finally:(fun () ->
+          match Input.close input with
+          | Ok () -> ()
+          | Error error ->
+              print_error error;
+              stop exit_operational)
+        (fun () -> operation input)
 
 let parse_input ~format ~limits input =
   match Registry.parse ~format limits input.Input.reader with
@@ -73,7 +87,8 @@ let render_json_document input limits parser parse_result =
   let detections = Registry.detect limits input.Input.reader in
   let selected_detection = detection_for parser.Format.id detections in
   Render_json.document ~filename:input.filename ~input_size:input.size
-    ~detections ~selected_detection ~limits parse_result
+    ~input_backend:(Input.backend_name input) ~detections ~selected_detection
+    ~limits parse_result
   |> Render_json.to_string
 
 let result_has_error result =
@@ -99,115 +114,118 @@ let select_subtree root path offset =
           in
           match candidates with [] -> None | first :: _ -> Some first))
 
-let run_inspect filename format max_nodes max_string_bytes max_table_entries
-    max_depth show_descriptions show_diagnostics show_raw decimal_offsets path
-    offset json _no_color output =
+let run_inspect backend filename format max_nodes max_string_bytes
+    max_table_entries max_depth show_descriptions show_diagnostics show_raw
+    decimal_offsets path offset json _no_color output =
   let limits =
     make_limits max_nodes max_string_bytes max_table_entries max_depth
   in
-  let input = load filename in
-  let parser, result = parse_input ~format ~limits input in
-  let contents =
-    if json then render_json_document input limits parser result
-    else
-      match result.Format.root with
-      | None -> "No parse tree was produced.\n"
-      | Some root -> (
-          match select_subtree root path offset with
-          | None ->
-              prerr_endline
-                "The requested semantic path or offset was not found.";
-              stop exit_invalid_arguments
-          | Some root ->
-              Render_text.render root
-                ~options:
-                  { Render_text.max_depth;
-                    show_descriptions;
-                    show_diagnostics;
-                    show_raw;
-                    decimal_offsets
-                  })
-  in
-  (match output_text output contents with
-  | Ok () -> ()
-  | Error error ->
-      print_error error;
-      stop exit_operational);
-  if result.limit_reached then stop exit_limit;
-  if result.root = None || result_has_error result then stop exit_malformed
+  with_input backend filename (fun input ->
+      let parser, result = parse_input ~format ~limits input in
+      let contents =
+        if json then render_json_document input limits parser result
+        else
+          match result.Format.root with
+          | None -> "No parse tree was produced.\n"
+          | Some root -> (
+              match select_subtree root path offset with
+              | None ->
+                  prerr_endline
+                    "The requested semantic path or offset was not found.";
+                  stop exit_invalid_arguments
+              | Some root ->
+                  Render_text.render root
+                    ~options:
+                      { Render_text.max_depth;
+                        show_descriptions;
+                        show_diagnostics;
+                        show_raw;
+                        decimal_offsets
+                      })
+      in
+      (match output_text output contents with
+      | Ok () -> ()
+      | Error error ->
+          print_error error;
+          stop exit_operational);
+      if result.limit_reached then stop exit_limit;
+      if result.root = None || result_has_error result then stop exit_malformed)
 
-let run_json filename format max_nodes max_string_bytes max_table_entries
-    max_depth output =
+let run_json backend filename format max_nodes max_string_bytes
+    max_table_entries max_depth output =
   let limits =
     make_limits max_nodes max_string_bytes max_table_entries max_depth
   in
-  let input = load filename in
-  let parser, result = parse_input ~format ~limits input in
-  let contents = render_json_document input limits parser result in
-  (match output_text output contents with
-  | Ok () -> ()
-  | Error error ->
-      print_error error;
-      stop exit_operational);
-  if result.limit_reached then stop exit_limit
-  else if result.root = None || result_has_error result then stop exit_malformed
+  with_input backend filename (fun input ->
+      let parser, result = parse_input ~format ~limits input in
+      let contents = render_json_document input limits parser result in
+      (match output_text output contents with
+      | Ok () -> ()
+      | Error error ->
+          print_error error;
+          stop exit_operational);
+      if result.limit_reached then stop exit_limit
+      else if result.root = None || result_has_error result then
+        stop exit_malformed)
 
-let run_validate filename format strict max_nodes max_string_bytes
+let run_validate backend filename format strict max_nodes max_string_bytes
     max_table_entries max_depth =
   let limits =
     make_limits max_nodes max_string_bytes max_table_entries max_depth
   in
-  let input = load filename in
-  let _, result = parse_input ~format ~limits input in
-  List.iter
-    (fun diagnostic -> prerr_endline (Diagnostic.to_string diagnostic))
-    result.Format.diagnostics;
-  flush stderr;
-  if result.limit_reached then stop exit_limit;
-  let has_error =
-    List.exists
-      (fun diagnostic -> diagnostic.Diagnostic.severity = Diagnostic.Error)
-      result.diagnostics
-  in
-  let has_warning =
-    List.exists
-      (fun diagnostic -> diagnostic.Diagnostic.severity = Diagnostic.Warning)
-      result.diagnostics
-  in
-  if has_error || (strict && has_warning) || result.root = None then
-    stop exit_malformed
+  with_input backend filename (fun input ->
+      let _, result = parse_input ~format ~limits input in
+      List.iter
+        (fun diagnostic -> prerr_endline (Diagnostic.to_string diagnostic))
+        result.Format.diagnostics;
+      flush stderr;
+      if result.limit_reached then stop exit_limit;
+      let has_error =
+        List.exists
+          (fun diagnostic -> diagnostic.Diagnostic.severity = Diagnostic.Error)
+          result.diagnostics
+      in
+      let has_warning =
+        List.exists
+          (fun diagnostic ->
+            diagnostic.Diagnostic.severity = Diagnostic.Warning)
+          result.diagnostics
+      in
+      if has_error || (strict && has_warning) || result.root = None then
+        stop exit_malformed)
 
-let run_detect filename json max_nodes max_string_bytes max_table_entries
-    max_depth =
+let run_detect backend filename json max_nodes max_string_bytes
+    max_table_entries max_depth =
   let limits =
     make_limits max_nodes max_string_bytes max_table_entries max_depth
   in
-  let input = load filename in
-  let detections = Registry.detect limits input.Input.reader in
-  if json then
-    `Assoc
-      [ ("schema_version", `String Version.schema_version);
-        ("input", `String input.filename);
-        ("candidates", `List (List.map Render_json.detection detections))
-      ]
-    |> Render_json.to_string |> print_string
-  else
-    List.iter
-      (fun (detection : Format.detection) ->
-        Printf.printf "%s (%s): %d%%\n" detection.Format.format_id
-          detection.display_name detection.confidence;
+  with_input backend filename (fun input ->
+      let detections = Registry.detect limits input.Input.reader in
+      if json then
+        `Assoc
+          [ ("schema_version", `String Version.schema_version);
+            ("input", `String input.filename);
+            ("backend", `String (Input.backend_name input));
+            ("candidates", `List (List.map Render_json.detection detections))
+          ]
+        |> Render_json.to_string |> print_string
+      else
         List.iter
-          (fun evidence -> Printf.printf "  evidence: %s\n" evidence)
-          detection.evidence;
-        List.iter
-          (fun contradiction ->
-            Printf.printf "  contradiction: %s\n" contradiction)
-          detection.contradictions)
-      detections;
-  flush stdout;
-  match detections with
-  | best :: _ when best.Format.confidence > 0 -> ()
-  | _ -> stop exit_unrecognized
+          (fun (detection : Format.detection) ->
+            Printf.printf "%s (%s): %d%%\n" detection.Format.format_id
+              detection.display_name detection.confidence;
+            List.iter
+              (fun evidence -> Printf.printf "  evidence: %s\n" evidence)
+              detection.evidence;
+            List.iter
+              (fun contradiction ->
+                Printf.printf "  contradiction: %s\n" contradiction)
+              detection.contradictions)
+          detections;
+      flush stdout;
+      match detections with
+      | best :: _ when best.Format.confidence > 0 -> ()
+      | _ -> stop exit_unrecognized)
 
 let run_formats json =
   let parsers = Registry.all () in
@@ -247,46 +265,49 @@ let run_formats json =
       parsers;
   flush stdout
 
-let run_diff left_filename right_filename format json check compare_raw
+let run_diff backend left_filename right_filename format json check compare_raw
     ignore_paths max_nodes max_string_bytes max_table_entries max_depth output =
   let limits =
     make_limits max_nodes max_string_bytes max_table_entries max_depth
   in
-  let left_input = load left_filename and right_input = load right_filename in
-  let _, left = parse_input ~format ~limits left_input in
-  let _, right = parse_input ~format ~limits right_input in
-  let options = { Diff.ignore_paths; compare_raw; max_raw_bytes = 65_536 } in
-  let differences =
-    Diff.compare ~options ~left_reader:left_input.reader
-      ~right_reader:right_input.reader left right
-  in
-  let contents =
-    if json then Diff.to_yojson differences |> Render_json.to_string
-    else Diff.render_text differences
-  in
-  (match output_text output contents with
-  | Ok () -> ()
-  | Error error ->
-      print_error error;
-      stop exit_operational);
-  if left.limit_reached || right.limit_reached then stop exit_limit;
-  if check && differences <> [] then stop exit_different
+  with_input backend left_filename (fun left_input ->
+      with_input backend right_filename (fun right_input ->
+          let _, left = parse_input ~format ~limits left_input in
+          let _, right = parse_input ~format ~limits right_input in
+          let options =
+            { Diff.ignore_paths; compare_raw; max_raw_bytes = 65_536 }
+          in
+          let differences =
+            Diff.compare ~options ~left_reader:left_input.reader
+              ~right_reader:right_input.reader left right
+          in
+          let contents =
+            if json then Diff.to_yojson differences |> Render_json.to_string
+            else Diff.render_text differences
+          in
+          (match output_text output contents with
+          | Ok () -> ()
+          | Error error ->
+              print_error error;
+              stop exit_operational);
+          if left.limit_reached || right.limit_reached then stop exit_limit;
+          if check && differences <> [] then stop exit_different))
 
-let run_tui filename format max_nodes max_string_bytes max_table_entries
+let run_tui backend filename format max_nodes max_string_bytes max_table_entries
     max_depth =
   let limits =
     make_limits max_nodes max_string_bytes max_table_entries max_depth
   in
-  let input = load filename in
-  let parser, result = parse_input ~format ~limits input in
-  if result.limit_reached then stop exit_limit;
-  match result.Format.root with
-  | None ->
-      prerr_endline "The parser could not build a tree for this input.";
-      stop exit_malformed
-  | Some root ->
-      Binlens_tui.App.run ~filename ~format:parser.Format.display_name
-        ~reader:input.reader ~root
+  with_input backend filename (fun input ->
+      let parser, result = parse_input ~format ~limits input in
+      if result.limit_reached then stop exit_limit;
+      match result.Format.root with
+      | None ->
+          prerr_endline "The parser could not build a tree for this input.";
+          stop exit_malformed
+      | Some root ->
+          Binlens_tui.App.run ~filename ~format:parser.Format.display_name
+            ~reader:input.reader ~root)
 
 let run_version () =
   Printf.printf "binlens %s (%s)\n" Version.version Version.build_metadata
@@ -300,6 +321,22 @@ let format_arg =
     & opt (enum values) "auto"
     & info [ "format" ] ~docv:"FORMAT"
         ~doc:"Select FORMAT or use automatic detection.")
+
+let backend_arg =
+  Arg.(
+    value
+    & opt
+        (enum
+           [ ("auto", Input.Auto);
+             ("bytes", Input.Bytes);
+             ("paged", Input.Paged)
+           ])
+        Input.Auto
+    & info [ "backend" ] ~docv:"BACKEND"
+        ~doc:
+          "Read with BACKEND: auto snapshots files up to 512 MiB and pages \
+           larger files; bytes forces a bounded snapshot; paged keeps a \
+           bounded read-only file window.")
 
 let file position doc =
   Arg.(required & pos position (some file) None & info [] ~docv:"FILE" ~doc)
@@ -402,6 +439,7 @@ let inspect_cmd =
       const
         (fun
           filename
+          backend
           format
           max_nodes
           max_string_bytes
@@ -417,12 +455,13 @@ let inspect_cmd =
           no_color
           output
         ->
-          run_inspect filename format max_nodes max_string_bytes
-            max_table_entries max_depth descriptions (not no_diagnostics) raw
-            decimal path offset json no_color output)
-      $ filename $ format_arg $ max_nodes $ max_string_bytes $ max_table_entries
-      $ max_depth $ descriptions $ no_diagnostics $ raw $ decimal $ path
-      $ offset $ json $ no_color $ output)
+          command_boundary (fun () ->
+              run_inspect backend filename format max_nodes max_string_bytes
+                max_table_entries max_depth descriptions (not no_diagnostics)
+                raw decimal path offset json no_color output))
+      $ filename $ backend_arg $ format_arg $ max_nodes $ max_string_bytes
+      $ max_table_entries $ max_depth $ descriptions $ no_diagnostics $ raw
+      $ decimal $ path $ offset $ json $ no_color $ output)
   in
   Cmd.v
     (command_info "inspect"
@@ -433,7 +472,21 @@ let json_cmd =
   let filename = file 0 "Binary file to export." in
   let term =
     Term.(
-      const run_json $ filename $ format_arg $ max_nodes $ max_string_bytes
+      const
+        (fun
+          backend
+          filename
+          format
+          max_nodes
+          max_string_bytes
+          max_table_entries
+          max_depth
+          output
+        ->
+          command_boundary (fun () ->
+              run_json backend filename format max_nodes max_string_bytes
+                max_table_entries max_depth output))
+      $ backend_arg $ filename $ format_arg $ max_nodes $ max_string_bytes
       $ max_table_entries $ max_depth $ output)
   in
   Cmd.v
@@ -449,7 +502,21 @@ let validate_cmd =
   in
   let term =
     Term.(
-      const run_validate $ filename $ format_arg $ strict $ max_nodes
+      const
+        (fun
+          backend
+          filename
+          format
+          strict
+          max_nodes
+          max_string_bytes
+          max_table_entries
+          max_depth
+        ->
+          command_boundary (fun () ->
+              run_validate backend filename format strict max_nodes
+                max_string_bytes max_table_entries max_depth))
+      $ backend_arg $ filename $ format_arg $ strict $ max_nodes
       $ max_string_bytes $ max_table_entries $ max_depth)
   in
   Cmd.v
@@ -464,7 +531,20 @@ let detect_cmd =
   in
   let term =
     Term.(
-      const run_detect $ filename $ json $ max_nodes $ max_string_bytes
+      const
+        (fun
+          backend
+          filename
+          json
+          max_nodes
+          max_string_bytes
+          max_table_entries
+          max_depth
+        ->
+          command_boundary (fun () ->
+              run_detect backend filename json max_nodes max_string_bytes
+                max_table_entries max_depth))
+      $ backend_arg $ filename $ json $ max_nodes $ max_string_bytes
       $ max_table_entries $ max_depth)
   in
   Cmd.v
@@ -505,7 +585,26 @@ let diff_cmd =
   in
   let term =
     Term.(
-      const run_diff $ left $ right $ format_arg $ json $ check $ raw $ ignore
+      const
+        (fun
+          backend
+          left
+          right
+          format
+          json
+          check
+          raw
+          ignore
+          max_nodes
+          max_string_bytes
+          max_table_entries
+          max_depth
+          output
+        ->
+          command_boundary (fun () ->
+              run_diff backend left right format json check raw ignore max_nodes
+                max_string_bytes max_table_entries max_depth output))
+      $ backend_arg $ left $ right $ format_arg $ json $ check $ raw $ ignore
       $ max_nodes $ max_string_bytes $ max_table_entries $ max_depth $ output)
   in
   Cmd.v
@@ -517,7 +616,20 @@ let tui_cmd =
   let filename = file 0 "Binary file to explore." in
   let term =
     Term.(
-      const run_tui $ filename $ format_arg $ max_nodes $ max_string_bytes
+      const
+        (fun
+          backend
+          filename
+          format
+          max_nodes
+          max_string_bytes
+          max_table_entries
+          max_depth
+        ->
+          command_boundary (fun () ->
+              run_tui backend filename format max_nodes max_string_bytes
+                max_table_entries max_depth))
+      $ backend_arg $ filename $ format_arg $ max_nodes $ max_string_bytes
       $ max_table_entries $ max_depth)
   in
   Cmd.v

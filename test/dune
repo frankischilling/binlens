@@ -11,7 +11,8 @@
   test_diff
   test_arbitrary
   test_tui
-  test_registry)
+  test_registry
+  test_input)
  (modules
   (:standard \ fixture_builder))
  (libraries
