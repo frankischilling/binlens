@@ -122,6 +122,216 @@ let elf32_big () = elf ~class_:1 ~endian:Endian.Big
 let elf64_little () = elf ~class_:2 ~endian:Endian.Little
 let elf64_big () = elf ~class_:2 ~endian:Endian.Big
 
+let elf_extended ~class_ ~endian =
+  let bytes = elf ~class_ ~endian in
+  let is_32 = class_ = 1 in
+  let header_size = if is_32 then 52 else 64 in
+  let program_size = if is_32 then 32 else 56 in
+  let section_offset = header_size + program_size in
+  set_u16 bytes endian (if is_32 then 44 else 56) 0xffff;
+  set_u16 bytes endian (if is_32 then 48 else 60) 0;
+  set_u16 bytes endian (if is_32 then 50 else 62) 0xffff;
+  if is_32 then (
+    set_u32 bytes endian (section_offset + 20) 3L;
+    set_u32 bytes endian (section_offset + 24) 2L;
+    set_u32 bytes endian (section_offset + 28) 1L)
+  else (
+    set_u64 bytes endian (section_offset + 32) 3L;
+    set_u32 bytes endian (section_offset + 40) 2L;
+    set_u32 bytes endian (section_offset + 44) 1L);
+  bytes
+
+let elf32_little_extended () = elf_extended ~class_:1 ~endian:Endian.Little
+let elf32_big_extended () = elf_extended ~class_:1 ~endian:Endian.Big
+let elf64_little_extended () = elf_extended ~class_:2 ~endian:Endian.Little
+let elf64_big_extended () = elf_extended ~class_:2 ~endian:Endian.Big
+
+let string_table values =
+  let buffer = Buffer.create 128 in
+  Buffer.add_char buffer (Char.chr 0);
+  let offsets =
+    List.map
+      (fun value ->
+        let offset = Buffer.length buffer in
+        Buffer.add_string buffer value;
+        Buffer.add_char buffer (Char.chr 0);
+        (value, offset))
+      values
+  in
+  (Buffer.contents buffer, offsets)
+
+let elf_metadata ~class_ ~endian =
+  let is_32 = class_ = 1 in
+  let header_size = if is_32 then 52 else 64 in
+  let section_size = if is_32 then 40 else 64 in
+  let symbol_size = if is_32 then 16 else 24 in
+  let dynamic_size = if is_32 then 8 else 16 in
+  let rel_size = if is_32 then 8 else 16 in
+  let rela_size = if is_32 then 12 else 24 in
+  let section_count = 9 in
+  let shstr, shstr_names =
+    string_table
+      [ ".shstrtab";
+        ".strtab";
+        ".symtab";
+        ".dynamic";
+        ".rel.text";
+        ".rela.text";
+        ".note.test";
+        ".debug_info"
+      ]
+  in
+  let strings, string_names = string_table [ "demo"; "libdemo.so" ] in
+  let name table value = Int64.of_int (List.assoc value table) in
+  let section_offset = header_size in
+  let payload_offset = section_offset + (section_count * section_size) in
+  let shstr_offset = payload_offset in
+  let strings_offset = shstr_offset + String.length shstr in
+  let symbol_offset = strings_offset + String.length strings in
+  let dynamic_offset = symbol_offset + symbol_size in
+  let rel_offset = dynamic_offset + (2 * dynamic_size) in
+  let rela_offset = rel_offset + rel_size in
+  let note_offset = rela_offset + rela_size in
+  let note_size = 20 in
+  let debug_offset = note_offset + note_size in
+  let bytes = Bytes.make (debug_offset + 4) (Char.chr 0) in
+  set_string bytes 0 "ELF";
+  set_u8 bytes 4 class_;
+  set_u8 bytes 5 (match endian with Endian.Little -> 1 | Big -> 2);
+  set_u8 bytes 6 1;
+  set_u16 bytes endian 16 1;
+  set_u16 bytes endian 18 243;
+  set_u32 bytes endian 20 1L;
+  if is_32 then (
+    set_u32 bytes endian 24 0L;
+    set_u32 bytes endian 28 0L;
+    set_u32 bytes endian 32 (Int64.of_int section_offset);
+    set_u32 bytes endian 36 5L;
+    set_u16 bytes endian 40 header_size;
+    set_u16 bytes endian 42 32;
+    set_u16 bytes endian 44 0;
+    set_u16 bytes endian 46 section_size;
+    set_u16 bytes endian 48 section_count;
+    set_u16 bytes endian 50 1)
+  else (
+    set_u64 bytes endian 24 0L;
+    set_u64 bytes endian 32 0L;
+    set_u64 bytes endian 40 (Int64.of_int section_offset);
+    set_u32 bytes endian 48 5L;
+    set_u16 bytes endian 52 header_size;
+    set_u16 bytes endian 54 56;
+    set_u16 bytes endian 56 0;
+    set_u16 bytes endian 58 section_size;
+    set_u16 bytes endian 60 section_count;
+    set_u16 bytes endian 62 1);
+  let section index = section_offset + (index * section_size) in
+  let set_section index ~name_offset ~kind ~offset ~size ~link ~info ~alignment
+      ~entry_size =
+    let base = section index in
+    set_u32 bytes endian base name_offset;
+    set_u32 bytes endian (base + 4) kind;
+    if is_32 then (
+      set_u32 bytes endian (base + 8) 0L;
+      set_u32 bytes endian (base + 12) 0L;
+      set_u32 bytes endian (base + 16) (Int64.of_int offset);
+      set_u32 bytes endian (base + 20) (Int64.of_int size);
+      set_u32 bytes endian (base + 24) (Int64.of_int link);
+      set_u32 bytes endian (base + 28) (Int64.of_int info);
+      set_u32 bytes endian (base + 32) (Int64.of_int alignment);
+      set_u32 bytes endian (base + 36) (Int64.of_int entry_size))
+    else (
+      set_u64 bytes endian (base + 8) 0L;
+      set_u64 bytes endian (base + 16) 0L;
+      set_u64 bytes endian (base + 24) (Int64.of_int offset);
+      set_u64 bytes endian (base + 32) (Int64.of_int size);
+      set_u32 bytes endian (base + 40) (Int64.of_int link);
+      set_u32 bytes endian (base + 44) (Int64.of_int info);
+      set_u64 bytes endian (base + 48) (Int64.of_int alignment);
+      set_u64 bytes endian (base + 56) (Int64.of_int entry_size))
+  in
+  set_section 1
+    ~name_offset:(name shstr_names ".shstrtab")
+    ~kind:3L ~offset:shstr_offset ~size:(String.length shstr) ~link:0 ~info:0
+    ~alignment:1 ~entry_size:1;
+  set_section 2
+    ~name_offset:(name shstr_names ".strtab")
+    ~kind:3L ~offset:strings_offset ~size:(String.length strings) ~link:0
+    ~info:0 ~alignment:1 ~entry_size:1;
+  set_section 3
+    ~name_offset:(name shstr_names ".symtab")
+    ~kind:2L ~offset:symbol_offset ~size:symbol_size ~link:2 ~info:0
+    ~alignment:8 ~entry_size:symbol_size;
+  set_section 4
+    ~name_offset:(name shstr_names ".dynamic")
+    ~kind:6L ~offset:dynamic_offset ~size:(2 * dynamic_size) ~link:2 ~info:0
+    ~alignment:8 ~entry_size:dynamic_size;
+  set_section 5
+    ~name_offset:(name shstr_names ".rel.text")
+    ~kind:9L ~offset:rel_offset ~size:rel_size ~link:3 ~info:8 ~alignment:8
+    ~entry_size:rel_size;
+  set_section 6
+    ~name_offset:(name shstr_names ".rela.text")
+    ~kind:4L ~offset:rela_offset ~size:rela_size ~link:3 ~info:8 ~alignment:8
+    ~entry_size:rela_size;
+  set_section 7
+    ~name_offset:(name shstr_names ".note.test")
+    ~kind:7L ~offset:note_offset ~size:note_size ~link:0 ~info:0 ~alignment:4
+    ~entry_size:1;
+  set_section 8
+    ~name_offset:(name shstr_names ".debug_info")
+    ~kind:1L ~offset:debug_offset ~size:4 ~link:0 ~info:0 ~alignment:1
+    ~entry_size:1;
+  set_string bytes shstr_offset shstr;
+  set_string bytes strings_offset strings;
+  let demo_name = name string_names "demo" in
+  if is_32 then (
+    set_u32 bytes endian symbol_offset demo_name;
+    set_u32 bytes endian (symbol_offset + 4) 0x1000L;
+    set_u32 bytes endian (symbol_offset + 8) 4L;
+    set_u8 bytes (symbol_offset + 12) 0x12;
+    set_u8 bytes (symbol_offset + 13) 0;
+    set_u16 bytes endian (symbol_offset + 14) 8)
+  else (
+    set_u32 bytes endian symbol_offset demo_name;
+    set_u8 bytes (symbol_offset + 4) 0x12;
+    set_u8 bytes (symbol_offset + 5) 0;
+    set_u16 bytes endian (symbol_offset + 6) 8;
+    set_u64 bytes endian (symbol_offset + 8) 0x1000L;
+    set_u64 bytes endian (symbol_offset + 16) 4L);
+  let library_name = name string_names "libdemo.so" in
+  if is_32 then (
+    set_u32 bytes endian dynamic_offset 1L;
+    set_u32 bytes endian (dynamic_offset + 4) library_name;
+    set_u32 bytes endian (dynamic_offset + dynamic_size) 0L;
+    set_u32 bytes endian (dynamic_offset + dynamic_size + 4) 0L;
+    set_u32 bytes endian rel_offset 0x1000L;
+    set_u32 bytes endian (rel_offset + 4) 42L;
+    set_u32 bytes endian rela_offset 0x1004L;
+    set_u32 bytes endian (rela_offset + 4) 43L;
+    set_u32 bytes endian (rela_offset + 8) (-4L))
+  else (
+    set_u64 bytes endian dynamic_offset 1L;
+    set_u64 bytes endian (dynamic_offset + 8) library_name;
+    set_u64 bytes endian (dynamic_offset + dynamic_size) 0L;
+    set_u64 bytes endian (dynamic_offset + dynamic_size + 8) 0L;
+    set_u64 bytes endian rel_offset 0x1000L;
+    set_u64 bytes endian (rel_offset + 8) 42L;
+    set_u64 bytes endian rela_offset 0x1004L;
+    set_u64 bytes endian (rela_offset + 8) 43L;
+    set_u64 bytes endian (rela_offset + 16) (-4L));
+  set_u32 bytes endian note_offset 4L;
+  set_u32 bytes endian (note_offset + 4) 4L;
+  set_u32 bytes endian (note_offset + 8) 3L;
+  set_string bytes (note_offset + 12) ("GNU" ^ String.make 1 (Char.chr 0));
+  set_string bytes (note_offset + 16) "ABCD";
+  set_string bytes debug_offset "DWAR";
+  bytes
+
+let elf32_little_metadata () = elf_metadata ~class_:1 ~endian:Endian.Little
+let elf32_big_metadata () = elf_metadata ~class_:1 ~endian:Endian.Big
+let elf64_little_metadata () = elf_metadata ~class_:2 ~endian:Endian.Little
+let elf64_big_metadata () = elf_metadata ~class_:2 ~endian:Endian.Big
+
 let pe ~plus =
   let pe_offset = 0x80 in
   let optional_size = if plus then 240 else 224 in
