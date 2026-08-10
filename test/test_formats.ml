@@ -149,7 +149,8 @@ let test_elf_metadata_malformed () =
          String.equal diagnostic.Diagnostic.code "elf.metadata_trailing_bytes")
        result.diagnostics);
   let overflow = Fixture_builder.elf64_little_metadata () in
-  Fixture_builder.set_u64 overflow Endian.Little (64 + (3 * 64) + 24)
+  Fixture_builder.set_u64 overflow Endian.Little
+    (64 + (3 * 64) + 24)
     Int64.min_int;
   Alcotest.(check bool)
     "metadata offset overflow" true (parse "elf" overflow).partial
