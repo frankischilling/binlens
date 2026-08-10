@@ -1,0 +1,3 @@
+(executable
+ (name bench)
+ (libraries binlens binlens_tui fixture_builder unix))

@@ -1,0 +1,41 @@
+name: Format support request
+description: Propose a new format or a documented extension to current coverage.
+title: "format: "
+labels:
+  - "type: feature"
+  - "type: parser"
+body:
+  - type: input
+    id: format
+    attributes:
+      label: Format or structure
+    validations:
+      required: true
+  - type: input
+    id: specification
+    attributes:
+      label: Public specification
+      description: Link a stable specification that permits implementation and test use.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Useful first scope
+      description: List the fields and validations needed for a small honest implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: fixtures
+    attributes:
+      label: Fixture plan
+      description: Explain how tests can generate valid and malformed data without proprietary files.
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Untrusted sizes and offsets
+      description: Identify tables, strings, recursion, compression, checksums, or references that need budgets.
+    validations:
+      required: true

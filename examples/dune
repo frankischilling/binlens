@@ -1,0 +1,3 @@
+(executable
+ (name generate_fixtures)
+ (libraries fixture_builder unix))

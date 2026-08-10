@@ -3,7 +3,7 @@
 /examples/generated/
 /*.install
 /*.merlin
-/.coverage/
+/_coverage/
 bisect*.coverage
 *.prof
 *.exe
