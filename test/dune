@@ -4,7 +4,25 @@
  (libraries binlens))
 
 (tests
- (names test_reader test_tree test_formats test_diff test_arbitrary test_tui test_cli)
- (modules (:standard \ fixture_builder))
+ (names test_reader test_tree test_formats test_diff test_arbitrary test_tui)
+ (modules
+  (:standard \ fixture_builder))
+ (libraries
+  binlens
+  binlens_tui
+  fixture_builder
+  alcotest
+  qcheck
+  qcheck-alcotest
+  str))
+
+(test
+ (name test_cli)
+ (modules test_cli)
  (deps ../bin/main.exe)
- (libraries binlens binlens_tui fixture_builder alcotest qcheck qcheck-alcotest str))
+ (libraries binlens fixture_builder alcotest)
+ (action
+  (setenv
+   BINLENS_TEST_EXE
+   %{exe:../bin/main.exe}
+   (run %{test}))))

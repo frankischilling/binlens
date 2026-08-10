@@ -1,4 +1,6 @@
 (library
  (name binlens_tui)
  (public_name binlens.tui)
- (libraries binlens terml unix threads str))
+ (libraries binlens terml terminal_size unix threads str)
+ (instrumentation
+  (backend bisect_ppx)))

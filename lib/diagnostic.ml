@@ -1,21 +1,20 @@
 type severity = Information | Warning | Error
 
-type t = {
-  severity : severity;
-  code : string;
-  message : string;
-  span : Span.t option;
-  component : string;
-  expected : string option;
-  actual : string option;
-  recoverable : bool;
-  hint : string option;
-}
+type t =
+  { severity : severity;
+    code : string;
+    message : string;
+    span : Span.t option;
+    component : string;
+    expected : string option;
+    actual : string option;
+    recoverable : bool;
+    hint : string option
+  }
 
 let make ?span ?expected ?actual ?hint ~severity ~code ~message ~component
     ~recoverable () =
-  {
-    severity;
+  { severity;
     code;
     message;
     span;
@@ -23,7 +22,7 @@ let make ?span ?expected ?actual ?hint ~severity ~code ~message ~component
     expected;
     actual;
     recoverable;
-    hint;
+    hint
   }
 
 let severity_to_string = function

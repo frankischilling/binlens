@@ -20,19 +20,17 @@ let unsigned width bits =
 let address width bits =
   Address { width; value = Unsigned.of_int64 ~width bits }
 
-let offset width bits =
-  Offset { width; value = Unsigned.of_int64 ~width bits }
+let offset width bits = Offset { width; value = Unsigned.of_int64 ~width bits }
 
 let enum width bits name =
-  Enumeration
-    { raw = { width; value = Unsigned.of_int64 ~width bits }; name }
+  Enumeration { raw = { width; value = Unsigned.of_int64 ~width bits }; name }
 
 let bitfield width bits flags =
-  Bitfield
-    { raw = { width; value = Unsigned.of_int64 ~width bits }; flags }
+  Bitfield { raw = { width; value = Unsigned.of_int64 ~width bits }; flags }
 
 let numeric_to_string numeric =
-  Printf.sprintf "%s (%s)" (Unsigned.to_hex numeric.value)
+  Printf.sprintf "%s (%s)"
+    (Unsigned.to_hex numeric.value)
     (Unsigned.to_decimal numeric.value)
 
 let to_string = function
@@ -56,5 +54,15 @@ let to_string = function
   | Collection count -> Printf.sprintf "%d items" count
   | Null -> "null"
   | Invalid message -> "invalid: " ^ message
+
+let to_string_base ~hexadecimal value =
+  match value with
+  | Unsigned numeric | Address numeric | Offset numeric ->
+      if hexadecimal then Unsigned.to_hex numeric.value
+      else Unsigned.to_decimal numeric.value
+  | Signed { value; _ } ->
+      if hexadecimal then Printf.sprintf "0x%Lx" value
+      else Int64.to_string value
+  | other -> to_string other
 
 let equal left right = left = right

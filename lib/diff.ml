@@ -11,16 +11,14 @@ type kind =
   | Format_changed
   | Partial_changed
 
-type difference = {
-  kind : kind;
-  path : string;
-  before : string option;
-  after : string option;
-}
+type difference =
+  { kind : kind; path : string; before : string option; after : string option }
 
-type options = { ignore_paths : string list; compare_raw : bool; max_raw_bytes : int }
+type options =
+  { ignore_paths : string list; compare_raw : bool; max_raw_bytes : int }
 
-let default_options = { ignore_paths = []; compare_raw = false; max_raw_bytes = 65_536 }
+let default_options =
+  { ignore_paths = []; compare_raw = false; max_raw_bytes = 65_536 }
 
 let kind_to_string = function
   | Added_node -> "added_node"
@@ -49,21 +47,24 @@ let value_type = function
 
 let map_nodes root =
   Node.flatten root
-  |> List.fold_left (fun map node -> Path_map.add node.Node.path node map) Path_map.empty
+  |> List.fold_left
+       (fun map node -> Path_map.add node.Node.path node map)
+       Path_map.empty
 
 let ignored options path = List.exists (String.equal path) options.ignore_paths
-
 let difference kind path before after = { kind; path; before; after }
 
 let diagnostics_signature diagnostics =
   diagnostics
   |> List.map (fun diagnostic ->
-         Diagnostic.severity_to_string diagnostic.Diagnostic.severity ^ ":"
-         ^ diagnostic.code)
+      Diagnostic.severity_to_string diagnostic.Diagnostic.severity
+      ^ ":" ^ diagnostic.code)
   |> String.concat ","
 
 let raw_diff options left_reader right_reader left right =
-  if not options.compare_raw || not (Span.equal left.Node.span right.Node.span) then false
+  if
+    (not options.compare_raw) || not (Span.equal left.Node.span right.Node.span)
+  then false
   else
     let length = Span.length left.span in
     if Int64.compare length (Int64.of_int options.max_raw_bytes) > 0 then false
@@ -89,39 +90,59 @@ let compare ?(options = default_options) ~left_reader ~right_reader left right =
         (Some (string_of_bool right.partial))
       :: !differences;
   let left_nodes = Option.fold ~none:Path_map.empty ~some:map_nodes left.root in
-  let right_nodes = Option.fold ~none:Path_map.empty ~some:map_nodes right.root in
+  let right_nodes =
+    Option.fold ~none:Path_map.empty ~some:map_nodes right.root
+  in
   let paths =
-    Path_map.fold (fun path _ set -> Path_map.add path () set) left_nodes Path_map.empty
-    |> fun set -> Path_map.fold (fun path _ set -> Path_map.add path () set) right_nodes set
+    Path_map.fold
+      (fun path _ set -> Path_map.add path () set)
+      left_nodes Path_map.empty
+    |> fun set ->
+    Path_map.fold (fun path _ set -> Path_map.add path () set) right_nodes set
   in
   Path_map.iter
     (fun path () ->
       if not (ignored options path) then
-        match (Path_map.find_opt path left_nodes, Path_map.find_opt path right_nodes) with
+        match
+          (Path_map.find_opt path left_nodes, Path_map.find_opt path right_nodes)
+        with
         | None, Some node ->
-            differences := difference Added_node path None (Some node.Node.label) :: !differences
+            differences :=
+              difference Added_node path None (Some node.Node.label)
+              :: !differences
         | Some node, None ->
-            differences := difference Removed_node path (Some node.Node.label) None :: !differences
+            differences :=
+              difference Removed_node path (Some node.Node.label) None
+              :: !differences
         | Some left, Some right ->
-            let left_type = value_type left.value and right_type = value_type right.value in
+            let left_type = value_type left.value
+            and right_type = value_type right.value in
             if not (String.equal left_type right_type) then
-              differences := difference Changed_type path (Some left_type) (Some right_type) :: !differences;
+              differences :=
+                difference Changed_type path (Some left_type) (Some right_type)
+                :: !differences;
             if not (Value.equal left.value right.value) then
               differences :=
-                difference Changed_value path (Some (Value.to_string left.value))
+                difference Changed_value path
+                  (Some (Value.to_string left.value))
                   (Some (Value.to_string right.value))
                 :: !differences;
             if left.span <> right.span then
               differences :=
-                difference Changed_span path (Some (Span.to_string left.span))
+                difference Changed_span path
+                  (Some (Span.to_string left.span))
                   (Some (Span.to_string right.span))
                 :: !differences;
             let left_diagnostics = diagnostics_signature left.diagnostics
             and right_diagnostics = diagnostics_signature right.diagnostics in
             if not (String.equal left_diagnostics right_diagnostics) then
-              differences := difference Changed_diagnostic path (Some left_diagnostics) (Some right_diagnostics) :: !differences;
+              differences :=
+                difference Changed_diagnostic path (Some left_diagnostics)
+                  (Some right_diagnostics)
+                :: !differences;
             if raw_diff options left_reader right_reader left right then
-              differences := difference Changed_raw path None None :: !differences
+              differences :=
+                difference Changed_raw path None None :: !differences
         | None, None -> ())
     paths;
   List.sort
@@ -136,29 +157,30 @@ let render_text differences =
   else
     differences
     |> List.map (fun difference ->
-           let before = Option.value difference.before ~default:"<none>"
-           and after = Option.value difference.after ~default:"<none>" in
-           Printf.sprintf "%s %s: %s -> %s" (kind_to_string difference.kind)
-             difference.path before after)
+        let before = Option.value difference.before ~default:"<none>"
+        and after = Option.value difference.after ~default:"<none>" in
+        Printf.sprintf "%s %s: %s -> %s"
+          (kind_to_string difference.kind)
+          difference.path before after)
     |> String.concat "\n"
     |> fun value -> value ^ "\n"
 
 let to_yojson differences =
   `Assoc
-    [
-      ("schema_version", `String Version.schema_version);
+    [ ("schema_version", `String Version.schema_version);
       ( "differences",
         `List
           (List.map
              (fun difference ->
                `Assoc
-                 ([
-                    ("kind", `String (kind_to_string difference.kind));
-                    ("path", `String difference.path);
+                 ([ ("kind", `String (kind_to_string difference.kind));
+                    ("path", `String difference.path)
                   ]
-                 @ Render_json.option "before" (fun value -> `String value)
+                 @ Render_json.option "before"
+                     (fun value -> `String value)
                      difference.before
-                 @ Render_json.option "after" (fun value -> `String value)
+                 @ Render_json.option "after"
+                     (fun value -> `String value)
                      difference.after))
-             differences) );
+             differences) )
     ]

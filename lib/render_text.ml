@@ -1,18 +1,17 @@
-type options = {
-  max_depth : int;
-  show_descriptions : bool;
-  show_diagnostics : bool;
-  show_raw : bool;
-  decimal_offsets : bool;
-}
+type options =
+  { max_depth : int;
+    show_descriptions : bool;
+    show_diagnostics : bool;
+    show_raw : bool;
+    decimal_offsets : bool
+  }
 
 let default_options =
-  {
-    max_depth = 32;
+  { max_depth = 32;
     show_descriptions = false;
     show_diagnostics = true;
     show_raw = false;
-    decimal_offsets = false;
+    decimal_offsets = false
   }
 
 let span options span =
@@ -36,7 +35,9 @@ let render ?(options = default_options) root =
         (Printf.sprintf "%s %s = %s" node.Node.label (span options node.span)
            (Value.to_string node.value));
       if options.show_descriptions then
-        Option.iter (fun description -> line (depth + 1) description) node.description;
+        Option.iter
+          (fun description -> line (depth + 1) description)
+          node.description;
       if options.show_raw then
         Option.iter
           (fun raw -> line (depth + 1) ("raw: " ^ raw))
@@ -45,8 +46,10 @@ let render ?(options = default_options) root =
         List.iter
           (fun diagnostic -> line (depth + 1) (Diagnostic.to_string diagnostic))
           node.diagnostics;
-      if depth < options.max_depth then List.iter (visit (depth + 1)) node.children
-      else if node.children <> [] then line (depth + 1) "... depth limit reached")
+      if depth < options.max_depth then
+        List.iter (visit (depth + 1)) node.children
+      else if node.children <> [] then
+        line (depth + 1) "... depth limit reached")
   in
   visit 0 root;
   Buffer.contents output

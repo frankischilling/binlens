@@ -1,4 +1,4 @@
-let executable = Filename.concat "_build" (Filename.concat "default" (Filename.concat "bin" "main.exe"))
+let executable = Sys.getenv "BINLENS_TEST_EXE"
 
 let read_all channel =
   let buffer = Buffer.create 1024 in
@@ -30,12 +30,16 @@ let with_file bytes function_ =
   let channel = open_out_bin filename in
   output_bytes channel bytes;
   close_out channel;
-  Fun.protect ~finally:(fun () -> Sys.remove filename) (fun () -> function_ filename)
+  Fun.protect
+    ~finally:(fun () -> Sys.remove filename)
+    (fun () -> function_ filename)
 
 let test_version_and_formats () =
   let code, output, _ = run [ "version" ] in
   Alcotest.(check int) "version status" 0 code;
-  Alcotest.(check bool) "version output" true (String.starts_with ~prefix:"binlens 0.1.0" output);
+  Alcotest.(check bool)
+    "version output" true
+    (String.starts_with ~prefix:"binlens 0.1.0" output);
   let code, output, _ = run [ "formats"; "--json" ] in
   Alcotest.(check int) "formats status" 0 code;
   ignore (Yojson.Safe.from_string output)
@@ -44,7 +48,9 @@ let test_inspect_detect_json () =
   with_file (Fixture_builder.nes ()) (fun filename ->
       let code, output, errors = run [ "detect"; filename ] in
       Alcotest.(check int) "detect status" 0 code;
-      Alcotest.(check bool) "detect NES" true (String.starts_with ~prefix:"nes" output);
+      Alcotest.(check bool)
+        "detect NES" true
+        (String.starts_with ~prefix:"nes" output);
       Alcotest.(check string) "detect stderr" "" errors;
       let code, output, errors = run [ "inspect"; filename ] in
       Alcotest.(check int) "inspect status" 0 code;
@@ -54,14 +60,17 @@ let test_inspect_detect_json () =
       Alcotest.(check int) "JSON status" 0 code;
       Alcotest.(check string) "JSON stderr" "" errors;
       let json = Yojson.Safe.from_string output in
-      Alcotest.(check string) "schema" "1.0"
+      Alcotest.(check string)
+        "schema" "1.0"
         Yojson.Safe.Util.(json |> member "schema_version" |> to_string))
 
 let test_validate_and_arguments () =
   with_file Bytes.empty (fun filename ->
       let code, _, errors = run [ "validate"; "--format"; "nes"; filename ] in
       Alcotest.(check int) "malformed status" 4 code;
-      Alcotest.(check bool) "diagnostic on stderr" true (String.length errors > 0));
+      Alcotest.(check bool)
+        "diagnostic on stderr" true
+        (String.length errors > 0));
   let code, _, _ = run [ "inspect" ] in
   Alcotest.(check int) "argument status" 2 code
 
@@ -72,7 +81,9 @@ let test_diff_check () =
         (fun right ->
           let code, output, _ = run [ "diff"; "--check"; left; right ] in
           Alcotest.(check int) "difference status" 6 code;
-          Alcotest.(check bool) "difference output" true (String.length output > 0));
+          Alcotest.(check bool)
+            "difference output" true
+            (String.length output > 0));
       let code, _, _ = run [ "diff"; "--check"; left; left ] in
       Alcotest.(check int) "identical status" 0 code)
 
@@ -86,19 +97,22 @@ let test_output_file () =
           Alcotest.(check int) "output status" 0 code;
           Alcotest.(check string) "stdout empty" "" stdout;
           let channel = open_in_bin output in
-          let contents = really_input_string channel (in_channel_length channel) in
+          let contents =
+            really_input_string channel (in_channel_length channel)
+          in
           close_in channel;
           ignore (Yojson.Safe.from_string contents)))
 
 let () =
   Alcotest.run "cli"
-    [
-      ( "commands",
-        [
-          Alcotest.test_case "version and formats" `Quick test_version_and_formats;
-          Alcotest.test_case "inspect detect JSON" `Quick test_inspect_detect_json;
-          Alcotest.test_case "validate and arguments" `Quick test_validate_and_arguments;
+    [ ( "commands",
+        [ Alcotest.test_case "version and formats" `Quick
+            test_version_and_formats;
+          Alcotest.test_case "inspect detect JSON" `Quick
+            test_inspect_detect_json;
+          Alcotest.test_case "validate and arguments" `Quick
+            test_validate_and_arguments;
           Alcotest.test_case "diff check" `Quick test_diff_check;
-          Alcotest.test_case "output file" `Quick test_output_file;
-        ] );
+          Alcotest.test_case "output file" `Quick test_output_file
+        ] )
     ]

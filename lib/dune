@@ -3,4 +3,6 @@
 (library
  (name binlens)
  (public_name binlens)
- (libraries unix yojson))
+ (libraries unix yojson)
+ (instrumentation
+  (backend bisect_ppx)))

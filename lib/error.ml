@@ -7,14 +7,14 @@ type kind =
   | Malformed
   | Unsupported
 
-type t = {
-  kind : kind;
-  code : string;
-  message : string;
-  offset : int64 option;
-  requested : int64 option;
-  available : int64 option;
-}
+type t =
+  { kind : kind;
+    code : string;
+    message : string;
+    offset : int64 option;
+    requested : int64 option;
+    available : int64 option
+  }
 
 let make ?offset ?requested ?available kind code message =
   { kind; code; message; offset; requested; available }

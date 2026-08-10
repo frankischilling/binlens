@@ -3,20 +3,27 @@ module Tui_input = Input
 let getenv_int name fallback =
   match Sys.getenv_opt name with
   | None -> fallback
-  | Some value -> (try int_of_string value with Failure _ -> fallback)
+  | Some value -> ( try int_of_string value with Failure _ -> fallback)
 
 let terminal_size () =
-  (getenv_int "LINES" 40, getenv_int "COLUMNS" 120)
+  let rows =
+    Option.value (Terminal_size.get_rows ()) ~default:(getenv_int "LINES" 40)
+  in
+  let cols =
+    Option.value
+      (Terminal_size.get_columns ())
+      ~default:(getenv_int "COLUMNS" 120)
+  in
+  (rows, cols)
 
 let render ~filename ~format model =
   let screen = View.render ~filename ~format model in
   Terml.Command.execute
-    [
-      Terml.Command.Terminal Terml.Terminal.BeginSyncUpdate;
+    [ Terml.Command.Terminal Terml.Terminal.BeginSyncUpdate;
       Terml.Command.Cursor (Terml.Cursor.MoveTo (1, 1));
       Terml.Command.Terminal (Terml.Terminal.ClearScreen Terml.Terminal.All);
       Terml.Command.Print screen;
-      Terml.Command.Terminal Terml.Terminal.EndSyncUpdate;
+      Terml.Command.Terminal Terml.Terminal.EndSyncUpdate
     ];
   flush stdout
 
@@ -47,9 +54,12 @@ let handle_prompt ~filename ~format model = function
       let value =
         prompt ~filename ~format model "Go to offset: " (Buffer.create 16)
       in
-      Option.fold ~none:model ~some:(Model.goto_offset model) (parse_offset value)
+      Option.fold ~none:model ~some:(Model.goto_offset model)
+        (parse_offset value)
   | "/" ->
-      let value = prompt ~filename ~format model "Search: " (Buffer.create 32) in
+      let value =
+        prompt ~filename ~format model "Search: " (Buffer.create 32)
+      in
       if String.equal value "" then model else Model.search model value
   | _ -> model
 
@@ -62,17 +72,17 @@ let update ~filename ~format model = function
   | Tui_input.Page_up -> Model.page model (-1)
   | Tui_input.Page_down -> Model.page model 1
   | Tui_input.Tab ->
-      {
-        model with
-        pane = (match model.Model.pane with Tree -> Hex | Hex -> Tree);
+      { model with
+        pane = (match model.Model.pane with Tree -> Hex | Hex -> Tree)
       }
-  | Tui_input.Character ("g" | "/" as key) ->
+  | Tui_input.Character (("g" | "/") as key) ->
       handle_prompt ~filename ~format model key
   | Tui_input.Character "n" -> Model.next_match model 1
   | Tui_input.Character "N" -> Model.next_match model (-1)
   | Tui_input.Character "d" ->
       { model with show_diagnostics = not model.show_diagnostics }
-  | Tui_input.Character "r" -> { model with raw_details = not model.raw_details }
+  | Tui_input.Character "r" ->
+      { model with raw_details = not model.raw_details }
   | Tui_input.Character "x" ->
       { model with hexadecimal_values = not model.hexadecimal_values }
   | Tui_input.Character "?" -> { model with show_help = not model.show_help }
@@ -90,18 +100,16 @@ let run ~filename ~format ~reader ~root =
         try Terml.Terminal.disable_raw_mode settings with _ -> ())
       raw_settings;
     Terml.Command.execute
-      [
-        Terml.Command.Cursor Terml.Cursor.Show;
+      [ Terml.Command.Cursor Terml.Cursor.Show;
         Terml.Command.Terminal Terml.Terminal.EnableLineWrap;
-        Terml.Command.Terminal Terml.Terminal.LeaveAlternateScreen;
+        Terml.Command.Terminal Terml.Terminal.LeaveAlternateScreen
       ];
     flush stdout
   in
   Terml.Command.execute
-    [
-      Terml.Command.Terminal Terml.Terminal.EnterAlternateScreen;
+    [ Terml.Command.Terminal Terml.Terminal.EnterAlternateScreen;
       Terml.Command.Terminal Terml.Terminal.DisableLineWrap;
-      Terml.Command.Cursor Terml.Cursor.Hide;
+      Terml.Command.Cursor Terml.Cursor.Hide
     ];
   Fun.protect ~finally:cleanup (fun () ->
       let running = ref true in

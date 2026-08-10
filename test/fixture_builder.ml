@@ -1,6 +1,7 @@
 open Binlens
 
-let set_u8 bytes offset value = Bytes.set bytes offset (Char.chr (value land 0xff))
+let set_u8 bytes offset value =
+  Bytes.set bytes offset (Char.chr (value land 0xff))
 
 let set_integer bytes endian offset width value =
   for index = 0 to width - 1 do
@@ -10,7 +11,8 @@ let set_integer bytes endian offset width value =
       | Endian.Big -> (width - index - 1) * 8
     in
     set_u8 bytes (offset + index)
-      (Int64.to_int (Int64.logand (Int64.shift_right_logical value shift) 0xffL))
+      (Int64.to_int
+         (Int64.logand (Int64.shift_right_logical value shift) 0xffL))
   done
 
 let set_u16 bytes endian offset value =
@@ -54,8 +56,10 @@ let elf ~class_ ~endian =
     set_u32 bytes endian (program_offset + 4) 0L;
     set_u32 bytes endian (program_offset + 8) 0x1000L;
     set_u32 bytes endian (program_offset + 12) 0x1000L;
-    set_u32 bytes endian (program_offset + 16) (Int64.of_int (Bytes.length bytes));
-    set_u32 bytes endian (program_offset + 20) (Int64.of_int (Bytes.length bytes));
+    set_u32 bytes endian (program_offset + 16)
+      (Int64.of_int (Bytes.length bytes));
+    set_u32 bytes endian (program_offset + 20)
+      (Int64.of_int (Bytes.length bytes));
     set_u32 bytes endian (program_offset + 24) 5L;
     set_u32 bytes endian (program_offset + 28) 0x1000L)
   else (
@@ -74,38 +78,42 @@ let elf ~class_ ~endian =
     set_u64 bytes endian (program_offset + 8) 0L;
     set_u64 bytes endian (program_offset + 16) 0x400000L;
     set_u64 bytes endian (program_offset + 24) 0x400000L;
-    set_u64 bytes endian (program_offset + 32) (Int64.of_int (Bytes.length bytes));
-    set_u64 bytes endian (program_offset + 40) (Int64.of_int (Bytes.length bytes));
+    set_u64 bytes endian (program_offset + 32)
+      (Int64.of_int (Bytes.length bytes));
+    set_u64 bytes endian (program_offset + 40)
+      (Int64.of_int (Bytes.length bytes));
     set_u64 bytes endian (program_offset + 48) 0x1000L);
   let section index = section_offset + (index * section_size) in
-  if is_32 then (
-    let text = section 1 and strings = section 2 in
-    set_u32 bytes endian text 1L;
-    set_u32 bytes endian (text + 4) 1L;
-    set_u32 bytes endian (text + 8) 6L;
-    set_u32 bytes endian (text + 12) 0x1000L;
-    set_u32 bytes endian (text + 16) 0L;
-    set_u32 bytes endian (text + 20) 0L;
-    set_u32 bytes endian (text + 32) 16L;
-    set_u32 bytes endian strings 7L;
-    set_u32 bytes endian (strings + 4) 3L;
-    set_u32 bytes endian (strings + 16) (Int64.of_int string_offset);
-    set_u32 bytes endian (strings + 20) (Int64.of_int (String.length string_table));
-    set_u32 bytes endian (strings + 32) 1L)
-  else (
-    let text = section 1 and strings = section 2 in
-    set_u32 bytes endian text 1L;
-    set_u32 bytes endian (text + 4) 1L;
-    set_u64 bytes endian (text + 8) 6L;
-    set_u64 bytes endian (text + 16) 0x401000L;
-    set_u64 bytes endian (text + 24) 0L;
-    set_u64 bytes endian (text + 32) 0L;
-    set_u64 bytes endian (text + 48) 16L;
-    set_u32 bytes endian strings 7L;
-    set_u32 bytes endian (strings + 4) 3L;
-    set_u64 bytes endian (strings + 24) (Int64.of_int string_offset);
-    set_u64 bytes endian (strings + 32) (Int64.of_int (String.length string_table));
-    set_u64 bytes endian (strings + 48) 1L);
+  (if is_32 then (
+     let text = section 1 and strings = section 2 in
+     set_u32 bytes endian text 1L;
+     set_u32 bytes endian (text + 4) 1L;
+     set_u32 bytes endian (text + 8) 6L;
+     set_u32 bytes endian (text + 12) 0x1000L;
+     set_u32 bytes endian (text + 16) 0L;
+     set_u32 bytes endian (text + 20) 0L;
+     set_u32 bytes endian (text + 32) 16L;
+     set_u32 bytes endian strings 7L;
+     set_u32 bytes endian (strings + 4) 3L;
+     set_u32 bytes endian (strings + 16) (Int64.of_int string_offset);
+     set_u32 bytes endian (strings + 20)
+       (Int64.of_int (String.length string_table));
+     set_u32 bytes endian (strings + 32) 1L)
+   else
+     let text = section 1 and strings = section 2 in
+     set_u32 bytes endian text 1L;
+     set_u32 bytes endian (text + 4) 1L;
+     set_u64 bytes endian (text + 8) 6L;
+     set_u64 bytes endian (text + 16) 0x401000L;
+     set_u64 bytes endian (text + 24) 0L;
+     set_u64 bytes endian (text + 32) 0L;
+     set_u64 bytes endian (text + 48) 16L;
+     set_u32 bytes endian strings 7L;
+     set_u32 bytes endian (strings + 4) 3L;
+     set_u64 bytes endian (strings + 24) (Int64.of_int string_offset);
+     set_u64 bytes endian (strings + 32)
+       (Int64.of_int (String.length string_table));
+     set_u64 bytes endian (strings + 48) 1L);
   set_string bytes string_offset string_table;
   bytes
 
@@ -160,11 +168,54 @@ let nes ?(nes2 = false) () =
   bytes
 
 let gameboy_logo =
-  [|
-    0xce; 0xed; 0x66; 0x66; 0xcc; 0x0d; 0x00; 0x0b; 0x03; 0x73; 0x00; 0x83;
-    0x00; 0x0c; 0x00; 0x0d; 0x00; 0x08; 0x11; 0x1f; 0x88; 0x89; 0x00; 0x0e;
-    0xdc; 0xcc; 0x6e; 0xe6; 0xdd; 0xdd; 0xd9; 0x99; 0xbb; 0xbb; 0x67; 0x63;
-    0x6e; 0x0e; 0xec; 0xcc; 0xdd; 0xdc; 0x99; 0x9f; 0xbb; 0xb9; 0x33; 0x3e;
+  [| 0xce;
+     0xed;
+     0x66;
+     0x66;
+     0xcc;
+     0x0d;
+     0x00;
+     0x0b;
+     0x03;
+     0x73;
+     0x00;
+     0x83;
+     0x00;
+     0x0c;
+     0x00;
+     0x0d;
+     0x00;
+     0x08;
+     0x11;
+     0x1f;
+     0x88;
+     0x89;
+     0x00;
+     0x0e;
+     0xdc;
+     0xcc;
+     0x6e;
+     0xe6;
+     0xdd;
+     0xdd;
+     0xd9;
+     0x99;
+     0xbb;
+     0xbb;
+     0x67;
+     0x63;
+     0x6e;
+     0x0e;
+     0xec;
+     0xcc;
+     0xdd;
+     0xdc;
+     0x99;
+     0x9f;
+     0xbb;
+     0xb9;
+     0x33;
+     0x3e
   |]
 
 let gameboy () =

@@ -12,8 +12,7 @@ let width value = value.width
 let bits value = value.bits
 
 let mask width =
-  if width = 64 then Int64.minus_one
-  else Int64.pred (Int64.shift_left 1L width)
+  if width = 64 then Int64.minus_one else Int64.pred (Int64.shift_left 1L width)
 
 let normalized value = Int64.logand value.bits (mask value.width)
 
@@ -23,7 +22,8 @@ let to_hex value =
 
 let to_decimal value =
   let number = normalized value in
-  if value.width < 64 || Int64.compare number 0L >= 0 then Int64.to_string number
+  if value.width < 64 || Int64.compare number 0L >= 0 then
+    Int64.to_string number
   else
     let buffer = Buffer.create 20 in
     let rec collect current =

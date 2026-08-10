@@ -4,10 +4,12 @@ let of_bytes data =
   let copy = Bytes.copy data in
   { data = copy; base = 0L; length = Int64.of_int (Bytes.length copy) }
 
-let of_string data = of_bytes (Bytes.of_string data)
+let of_string data =
+  let data = Bytes.of_string data in
+  { data; base = 0L; length = Int64.of_int (Bytes.length data) }
+
 let length reader = reader.length
 let absolute_offset reader offset = Span.checked_add reader.base offset
-
 let checked_add = Span.checked_add
 
 let checked_mul left right =
@@ -104,7 +106,7 @@ let slice reader ~offset ~length =
 let bytes ?tracker reader ~offset ~length =
   match range reader ~offset ~length with
   | Error _ as error -> error
-  | Ok () ->
+  | Ok () -> (
       if Int64.compare length (Int64.of_int max_int) > 0 then
         Error
           (Error.make ~offset ~requested:length Error.Resource_limit
@@ -117,7 +119,7 @@ let bytes ?tracker reader ~offset ~length =
           | None -> Ok ()
           | Some tracker -> Limits.consume_bytes_copied tracker count
         in
-        (match budget with
+        match budget with
         | Error _ as error -> error
         | Ok () -> (
             match index reader offset with
@@ -139,16 +141,18 @@ let c_string ?tracker reader ~offset ~max_length =
         (Error.make ~offset Error.Bounds "reader.string_out_of_bounds"
            "The string offset is outside the input.")
     else
-      let scan_length = min max_length (Int64.to_int (min available (Int64.of_int max_int))) in
-      let rec find index =
-        if index = scan_length then index
-        else
-          match get_u8 reader (Int64.add offset (Int64.of_int index)) with
-          | Ok 0 -> index
-          | Ok _ -> find (index + 1)
-          | Error _ -> index
+      let scan_length =
+        min max_length (Int64.to_int (min available (Int64.of_int max_int)))
       in
-      let count = find 0 in
+      let count = ref 0 in
+      let scanning = ref true in
+      while !scanning && !count < scan_length do
+        match get_u8 reader (Int64.add offset (Int64.of_int !count)) with
+        | Ok 0 -> scanning := false
+        | Ok _ -> incr count
+        | Error _ -> scanning := false
+      done;
+      let count = !count in
       fixed_string ?tracker reader ~offset ~length:(Int64.of_int count)
 
 let align offset alignment =
@@ -177,6 +181,11 @@ let byte reader offset = get_u8 reader offset
 let hex reader ~offset ~length =
   match range reader ~offset ~length with
   | Error _ as error -> error
+  | Ok () when Int64.compare length (Int64.of_int (max_int / 3)) > 0 ->
+      Error
+        (Error.make ~offset ~requested:length Error.Resource_limit
+           "reader.hex_too_large"
+           "The hexadecimal summary would exceed the runtime allocation limit.")
   | Ok () ->
       let buffer = Buffer.create (Int64.to_int length * 3) in
       let count = Int64.to_int length in

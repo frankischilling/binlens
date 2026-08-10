@@ -1,5 +1,4 @@
 open Binlens
-
 module Model = Binlens_tui.Model
 module Hex_view = Binlens_tui.Hex_view
 
@@ -27,14 +26,18 @@ let test_search_and_offset () =
   let reader, root = parsed_nes () in
   let model = Model.create ~reader ~root ~rows:24 ~cols:100 in
   let searched = Model.search model "mapper" in
-  Alcotest.(check bool) "search result" true (Array.length searched.search_matches > 0);
+  Alcotest.(check bool)
+    "search result" true
+    (Array.length searched.search_matches > 0);
   let selected = Option.get (Model.selected_node searched) in
   Alcotest.(check string) "selected mapper" "nes.mapper" selected.Node.path;
   let at_magic = Model.goto_offset model 0L in
   let node = Option.get (Model.selected_node at_magic) in
   Alcotest.(check string) "smallest containing node" "nes.magic" node.path;
   let next = Model.next_match searched 1 in
-  Alcotest.(check bool) "next remains valid" true (Option.is_some (Model.selected_node next))
+  Alcotest.(check bool)
+    "next remains valid" true
+    (Option.is_some (Model.selected_node next))
 
 let test_resize_and_hex_window () =
   let reader, root = parsed_nes () in
@@ -44,8 +47,7 @@ let test_resize_and_hex_window () =
   Alcotest.(check int) "cols" 3 resized.cols;
   let selected = Span.unsafe ~start:2L ~length:100L in
   let window =
-    Hex_view.calculate ~input_length:1_000L ~selected ~rows:2
-      ~bytes_per_line:8
+    Hex_view.calculate ~input_length:1_000L ~selected ~rows:2 ~bytes_per_line:8
   in
   Alcotest.(check bool) "large range continues" true window.selected_after;
   let lines = Hex_view.render reader root.Node.span window in
@@ -53,11 +55,10 @@ let test_resize_and_hex_window () =
 
 let () =
   Alcotest.run "tui"
-    [
-      ( "model",
-        [
-          Alcotest.test_case "navigation and expansion" `Quick test_navigation;
+    [ ( "model",
+        [ Alcotest.test_case "navigation and expansion" `Quick test_navigation;
           Alcotest.test_case "search and offset" `Quick test_search_and_offset;
-          Alcotest.test_case "resize and hex window" `Quick test_resize_and_hex_window;
-        ] );
+          Alcotest.test_case "resize and hex window" `Quick
+            test_resize_and_hex_window
+        ] )
     ]

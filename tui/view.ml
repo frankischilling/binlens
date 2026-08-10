@@ -8,8 +8,7 @@ let nth_or_empty lines index =
   match List.nth_opt lines index with None -> "" | Some value -> value
 
 let help_lines =
-  [
-    "BinLens keys";
+  [ "BinLens keys";
     "j/k or arrows: move";
     "h/l or arrows: collapse or expand";
     "Enter: toggle selected node";
@@ -22,13 +21,15 @@ let help_lines =
     "r: toggle raw details";
     "x: toggle hexadecimal values";
     "q: quit";
-    "?: close help";
+    "?: close help"
   ]
 
 let render ~filename ~format model =
   if model.Model.cols < 60 || model.rows < 14 then
     Printf.sprintf
-      "BinLens needs a terminal at least 60 columns wide and 14 rows high.\nCurrent size: %d x %d\nPress q to quit."
+      "BinLens needs a terminal at least 60 columns wide and 14 rows high.\n\
+       Current size: %d x %d\n\
+       Press q to quit."
       model.cols model.rows
   else if model.show_help then String.concat "\n" help_lines
   else
@@ -43,7 +44,8 @@ let render ~filename ~format model =
     let tree = Tree_view.render model ~height:body_height ~width:tree_width in
     let node = Option.value (Model.selected_node model) ~default:model.root in
     let window =
-      Hex_view.calculate ~input_length:(Reader.length model.reader)
+      Hex_view.calculate
+        ~input_length:(Reader.length model.reader)
         ~selected:node.span ~rows:body_height ~bytes_per_line:8
     in
     let hex = Hex_view.render model.reader node.span window in
@@ -64,7 +66,10 @@ let render ~filename ~format model =
     Buffer.add_char output '\n';
     if model.raw_details then (
       Buffer.add_string output
-        (pad model.cols ("value: " ^ Value.to_string node.value));
+        (pad model.cols
+           ("value: "
+           ^ Value.to_string_base ~hexadecimal:model.hexadecimal_values
+               node.value));
       Buffer.add_char output '\n');
     if model.show_diagnostics then (
       let diagnostic =

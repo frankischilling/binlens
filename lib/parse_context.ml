@@ -1,20 +1,19 @@
-type t = {
-  reader : Reader.t;
-  source_format : string;
-  limits : Limits.t;
-  tracker : Limits.tracker;
-  mutable diagnostics_rev : Diagnostic.t list;
-  mutable partial : bool;
-}
+type t =
+  { reader : Reader.t;
+    source_format : string;
+    limits : Limits.t;
+    tracker : Limits.tracker;
+    mutable diagnostics_rev : Diagnostic.t list;
+    mutable partial : bool
+  }
 
 let create ~reader ~source_format limits =
-  {
-    reader;
+  { reader;
     source_format;
     limits;
     tracker = Limits.tracker limits;
     diagnostics_rev = [];
-    partial = false;
+    partial = false
   }
 
 let add_diagnostic context diagnostic =
@@ -48,7 +47,8 @@ let span context ~start ~length =
   | Error error ->
       error_from_reader context ~component:context.source_format error;
       None
-  | Ok span when Span.within ~input_length:(Reader.length context.reader) span ->
+  | Ok span when Span.within ~input_length:(Reader.length context.reader) span
+    ->
       Some span
   | Ok span ->
       error ~span context ~code:"node.span_out_of_bounds"
@@ -66,22 +66,23 @@ let node ?description ?(children = []) ?(diagnostics = []) ?metadata context ~id
   else
     match Limits.consume_nodes context.tracker 1 with
     | Error resource_error ->
-        error_from_reader context ~component:context.source_format resource_error;
+        error_from_reader context ~component:context.source_format
+          resource_error;
         None
     | Ok () ->
         Some
           (Node.make ?description ~children ~diagnostics
-             ?metadata:(Option.map (fun value -> value) metadata) ~id ~path ~label
-             ~span ~value ~source_format:context.source_format ())
+             ?metadata:(Option.map (fun value -> value) metadata)
+             ~id ~path ~label ~span ~value ~source_format:context.source_format
+             ())
 
 let diagnostics context = List.rev context.diagnostics_rev
 let set_partial context = context.partial <- true
 
 let result context root =
-  {
-    Format.format_id = context.source_format;
+  { Format.format_id = context.source_format;
     root;
     diagnostics = diagnostics context;
     partial = context.partial;
-    limit_reached = Limits.limit_reached context.tracker;
+    limit_reached = Limits.limit_reached context.tracker
   }

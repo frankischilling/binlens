@@ -19,7 +19,8 @@ let render model ~height ~width =
       else "+"
     in
     let line =
-      Printf.sprintf "%s%s%s %s" marker (String.make (row.depth * 2) ' ')
+      Printf.sprintf "%s%s%s %s" marker
+        (String.make (row.depth * 2) ' ')
         expansion row.node.label
     in
     lines := crop width line :: !lines

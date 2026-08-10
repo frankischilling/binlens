@@ -1,29 +1,29 @@
-type metadata = {
-  endian : Endian.t option;
-  numeric_base : [ `Decimal | `Hexadecimal ] option;
-  raw : string option;
-}
+type metadata =
+  { endian : Endian.t option;
+    numeric_base : [ `Decimal | `Hexadecimal ] option;
+    raw : string option
+  }
 
-type t = {
-  id : string;
-  path : string;
-  label : string;
-  description : string option;
-  span : Span.t;
-  value : Value.t;
-  children : t list;
-  diagnostics : Diagnostic.t list;
-  source_format : string;
-  metadata : metadata;
-}
+type t =
+  { id : string;
+    path : string;
+    label : string;
+    description : string option;
+    span : Span.t;
+    value : Value.t;
+    children : t list;
+    diagnostics : Diagnostic.t list;
+    source_format : string;
+    metadata : metadata
+  }
 
 let metadata ?endian ?numeric_base ?raw () = { endian; numeric_base; raw }
 let empty_metadata = metadata ()
 
 let make ?description ?(children = []) ?(diagnostics = [])
-    ?(metadata = empty_metadata) ~id ~path ~label ~span ~value ~source_format () =
-  {
-    id;
+    ?(metadata = empty_metadata) ~id ~path ~label ~span ~value ~source_format ()
+    =
+  { id;
     path;
     label;
     description;
@@ -32,7 +32,7 @@ let make ?description ?(children = []) ?(diagnostics = [])
     children;
     diagnostics;
     source_format;
-    metadata;
+    metadata
   }
 
 let rec count node =
