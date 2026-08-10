@@ -1,0 +1,17 @@
+/_build/
+/_opam/
+/examples/generated/
+/*.install
+/*.merlin
+/.coverage/
+bisect*.coverage
+*.prof
+*.exe
+*.obj
+*.lib
+*.dll
+*.exp
+*.pdb
+*.zip
+*.tar.gz
+*.sha256

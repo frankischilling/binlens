@@ -1,0 +1,32 @@
+opam-version: "2.0"
+version: "0.1.0"
+synopsis: "Terminal binary-format explorer and parsing library"
+description: """
+BinLens parses selected binary formats into a typed tree whose fields carry exact
+byte spans. It provides text and JSON inspection, validation, structural diff,
+format detection, and an interactive terminal view.
+"""
+maintainer: ["Francis <frankhagan890@gmail.com>"]
+authors: ["Francis"]
+license: "MIT"
+homepage: "https://github.com/frankischilling/binlens"
+bug-reports: "https://github.com/frankischilling/binlens/issues"
+dev-repo: "git+https://github.com/frankischilling/binlens.git"
+depends: [
+  "ocaml" {>= "5.1.1" & < "5.6"}
+  "dune" {>= "3.15"}
+  "cmdliner" {>= "1.3.0"}
+  "yojson" {>= "2.2.0"}
+  "terml" {>= "0.0.1"}
+  "alcotest" {with-test & >= "1.8.0"}
+  "qcheck" {with-test & >= "0.23"}
+  "qcheck-alcotest" {with-test & >= "0.23"}
+  "odoc" {with-doc & >= "2.4.0"}
+  "ocamlformat" {with-dev-setup & = "0.29.0"}
+]
+build: [
+  ["dune" "subst"] {dev}
+  ["dune" "build" "-p" name "-j" jobs]
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+  ["dune" "build" "-p" name "@doc"] {with-doc}
+]
