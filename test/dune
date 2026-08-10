@@ -4,7 +4,14 @@
  (libraries binlens))
 
 (tests
- (names test_reader test_tree test_formats test_diff test_arbitrary test_tui)
+ (names
+  test_reader
+  test_tree
+  test_formats
+  test_diff
+  test_arbitrary
+  test_tui
+  test_registry)
  (modules
   (:standard \ fixture_builder))
  (libraries
