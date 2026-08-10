@@ -22,7 +22,6 @@ depends: [
   "alcotest" {with-test & >= "1.8.0"}
   "qcheck" {with-test & >= "0.23"}
   "qcheck-alcotest" {with-test & >= "0.23"}
-  "bisect_ppx" {with-test}
   "odoc" {with-doc & >= "2.4.0"}
   "ocamlformat" {with-dev-setup & = "0.29.0"}
 ]

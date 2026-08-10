@@ -53,6 +53,7 @@ The output directory is ignored by Git.
 ## Coverage
 
 ```console
+opam install bisect_ppx
 mkdir _coverage
 BISECT_FILE=$PWD/_coverage/bisect dune runtest --instrument-with bisect_ppx --force
 bisect-ppx-report summary --coverage-path _coverage
