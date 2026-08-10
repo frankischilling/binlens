@@ -1,0 +1,33 @@
+name: Parser hardening
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "19 4 * * 2"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: parser-hardening
+  cancel-in-progress: false
+
+jobs:
+  randomized-and-truncation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ocaml/setup-ocaml@605a7e998e76e035b82c14d618a6e1010732c4ce # v3
+        with:
+          ocaml-compiler: 5.3.0
+          dune-cache: true
+      - run: opam install . --deps-only --with-test
+      - name: Randomized parser properties
+        env:
+          BINLENS_QCHECK_COUNT: "10000"
+        run: opam exec -- dune exec test/test_arbitrary.exe
+      - name: Malicious counts and every-prefix truncation
+        run: opam exec -- dune exec test/test_formats.exe
+      - name: Reader budgets and terminal escaping
+        run: opam exec -- dune exec test/test_reader.exe && opam exec -- dune exec test/test_tree.exe

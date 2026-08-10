@@ -1,0 +1,41 @@
+name: Bug report
+description: Report reproducible command, rendering, build, or packaging behavior.
+title: "bug: "
+labels:
+  - "type: bug"
+body:
+  - type: markdown
+    attributes:
+      value: Do not attach sensitive or copyrighted binaries. Use a synthetic reproducer when possible.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: State what happened and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Include exact commands and the smallest input construction you can share.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: BinLens version
+      placeholder: binlens 0.1.0 (OCaml 5.3.0)
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and terminal
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Paste sanitized stdout, stderr, or JSON. Remove private paths if needed.

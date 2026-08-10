@@ -1,0 +1,50 @@
+name: Parser bug
+description: Report incorrect fields, spans, diagnostics, crashes, or resource-limit behavior.
+title: "parser: "
+labels:
+  - "type: bug"
+  - "type: parser"
+body:
+  - type: markdown
+    attributes:
+      value: Use a private security advisory if the input crashes BinLens, causes uncontrolled resource use, escapes terminal sanitization, or may expose data outside the input.
+  - type: dropdown
+    id: format
+    attributes:
+      label: Format
+      options:
+        - ELF
+        - PE
+        - NES
+        - Game Boy
+        - Game Boy Advance
+        - Detection or registry
+    validations:
+      required: true
+  - type: textarea
+    id: bytes
+    attributes:
+      label: Minimal bytes or fixture change
+      description: Give a hexadecimal fragment or a change to the synthetic fixture builder. Do not attach commercial ROMs.
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed tree and diagnostics
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected interpretation
+      description: Link the public specification section that defines the field when available.
+    validations:
+      required: true
+  - type: input
+    id: limits
+    attributes:
+      label: Parser limit options
+      placeholder: Defaults, or list changed options
+    validations:
+      required: true

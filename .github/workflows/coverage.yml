@@ -1,0 +1,37 @@
+name: Coverage
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ocaml/setup-ocaml@605a7e998e76e035b82c14d618a6e1010732c4ce # v3
+        with:
+          ocaml-compiler: 5.3.0
+          dune-cache: true
+      - run: opam install . --deps-only --with-test
+      - name: Run instrumented tests
+        run: |
+          mkdir -p _coverage
+          BISECT_FILE=$PWD/_coverage/bisect opam exec -- dune runtest --instrument-with bisect_ppx --force
+      - name: Build report
+        run: |
+          opam exec -- bisect-ppx-report summary --coverage-path _coverage | tee _coverage/summary.txt
+          opam exec -- bisect-ppx-report html --coverage-path _coverage -o _coverage/html
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-report
+          path: _coverage
+          if-no-files-found: error
