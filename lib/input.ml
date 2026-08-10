@@ -121,10 +121,7 @@ let read ?(backend = Auto) ?(max_bytes = default_max_bytes) filename =
                           match close_descriptor descriptor with
                           | Error _ as error -> error
                           | Ok () ->
-                              let reader =
-                                Reader_backend.of_owned_bytes data
-                                |> Reader.of_backend
-                              in
+                              let reader = Reader.of_owned_bytes data in
                               Ok
                                 { filename;
                                   reader;
@@ -136,17 +133,12 @@ let read ?(backend = Auto) ?(max_bytes = default_max_bytes) filename =
                   | Error error -> fail error
                   | Ok () -> (
                       match
-                        Reader_backend.of_file_descriptor descriptor
-                          ~length:size
+                        Reader.of_owned_file_descriptor descriptor ~length:size
                       with
                       | Error error -> fail error
-                      | Ok storage ->
-                          Ok
-                            { filename;
-                              reader = Reader.of_backend storage;
-                              size;
-                              backend = Paged_backend
-                            }))))
+                      | Ok reader ->
+                          Ok { filename; reader; size; backend = Paged_backend }
+                      ))))
     with
     | Unix.Unix_error (error, operation, _) ->
         Error (unix_error "input.open_failed" operation error)

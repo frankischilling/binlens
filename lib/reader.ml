@@ -4,6 +4,11 @@ let of_backend backend =
   { backend; base = 0L; length = Reader_backend.length backend }
 
 let of_bytes data = Reader_backend.of_bytes data |> of_backend
+let of_owned_bytes data = Reader_backend.of_owned_bytes data |> of_backend
+
+let of_owned_file_descriptor ?page_size descriptor ~length =
+  Reader_backend.of_file_descriptor ?page_size descriptor ~length
+  |> Result.map of_backend
 
 let of_string data =
   Bytes.of_string data |> Reader_backend.of_owned_bytes |> of_backend
