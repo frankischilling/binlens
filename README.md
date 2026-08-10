@@ -101,13 +101,13 @@ See [the JSON schema notes](docs/JSON_SCHEMA.md) for the complete versioned shap
 
 ## Format coverage
 
-| Format | Implemented in v0.1.0 | Not parsed in v0.1.0 |
+| Format | Implemented | Not parsed |
 | --- | --- | --- |
 | ELF | ELF32 and ELF64 identification and main headers, both byte orders, program headers, section headers, section names, file-range checks | Extended numbering, dynamic linking semantics, relocations, symbols, DWARF |
 | PE | DOS and PE signatures, COFF, PE32 and PE32+ core fields, basic data directories, sections, alignment and raw-range checks | Imports, resources, relocations, debug contents, complete RVA mapping |
-| NES | iNES and NES 2.0 sizes, mapper, submapper, console and storage flags | Payload banks and emulation |
-| Game Boy | Title, CGB flag, cartridge metadata, declared sizes, destination, version, header and global checksums | Mapper behavior and payload banks |
-| Game Boy Advance | Title and identity fields, unit and device fields, fixed byte, software version, header checksum | Payload structures and save-memory detection |
+| NES | iNES and NES 2.0 sizes, mapper, submapper, console and storage flags, bank counts, checked trainer, PRG ROM, and CHR ROM spans | Mapper behavior and emulation |
+| Game Boy | Title, CGB flag, cartridge metadata, declared sizes and bank counts, checked ROM span, destination, version, header and global checksums | Bank-switch behavior and save-data decoding |
+| Game Boy Advance | Complete 156-byte logo validation with documented flag masks, title and identity fields, unit and device fields, fixed byte, software version, header checksum, bounded save-memory signature detection | Payload structures, save-data decoding, and emulation |
 
 [Format coverage](docs/FORMAT_COVERAGE.md) records field-level details. Separate notes cover [ELF](docs/ELF.md), [PE](docs/PE.md), and [ROM headers](docs/ROM_HEADERS.md).
 

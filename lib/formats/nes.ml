@@ -7,10 +7,11 @@ let coverage =
       [ "iNES header";
         "NES 2.0 identification";
         "PRG and CHR sizes";
+        "trainer, PRG ROM, and CHR ROM payload spans";
         "mapper and submapper";
         "mirroring, battery, trainer, and console flags"
       ];
-    unsupported = [ "ROM payload semantics"; "emulation"; "archive containers" ]
+    unsupported = [ "mapper behavior"; "emulation"; "archive containers" ]
   }
 
 let has_magic reader =
@@ -68,6 +69,21 @@ let nes2_size context lsb upper unit_size component =
     let exponent = lsb lsr 2 in
     let multiplier = (lsb land 3 * 2) + 1 in
     checked_shift context exponent (Int64.of_int multiplier) component
+
+let unit_count size unit_size =
+  if Int64.equal size 0L then 0L
+  else Int64.succ (Int64.div (Int64.pred size) unit_size)
+
+let payload_range context ~id ~label ~offset ~length =
+  if Int64.equal length 0L then None
+  else
+    match Reader.range context.Parse_context.reader ~offset ~length with
+    | Error _ -> None
+    | Ok () ->
+        Parse_context.node context ~id ~path:("nes.payload." ^ id) ~label
+          ~span:(Span.unsafe ~start:offset ~length)
+          ~value:(Value.Bytes { summary = "not copied"; length })
+          ()
 
 let parse limits reader =
   let context = Parse_context.create ~reader ~source_format:id limits in
@@ -144,13 +160,21 @@ let parse limits reader =
        | Some size ->
            add "prg_size" "PRG ROM size" 4L
              (if nes2 then 6L else 1L)
-             (Value.unsigned 64 size)
+             (Value.unsigned 64 size);
+           let banks = unit_count size 16_384L in
+           add "prg_bank_count" "PRG ROM bank count" 4L
+             (if nes2 then 6L else 1L)
+             (Value.unsigned 64 banks)
        | None -> ());
        (match chr_size with
        | Some size ->
            add "chr_size" "CHR ROM size" 5L
              (if nes2 then 5L else 1L)
-             (Value.unsigned 64 size)
+             (Value.unsigned 64 size);
+           let banks = unit_count size 8_192L in
+           add "chr_bank_count" "CHR ROM bank count" 5L
+             (if nes2 then 5L else 1L)
+             (Value.unsigned 64 banks)
        | None -> ());
        match (prg_size, chr_size) with
        | Some prg, Some chr -> (
@@ -159,25 +183,64 @@ let parse limits reader =
            | Error error ->
                Parse_context.error_from_reader context ~component:"nes.payload"
                  error
-           | Ok prefix -> (
-               match Reader.checked_add prg chr with
+           | Ok prg_offset -> (
+               match Reader.checked_add prg_offset prg with
                | Error error ->
                    Parse_context.error_from_reader context
                      ~component:"nes.payload" error
-               | Ok payload -> (
-                   match Reader.checked_add prefix payload with
+               | Ok chr_offset -> (
+                   match Reader.checked_add chr_offset chr with
                    | Error error ->
                        Parse_context.error_from_reader context
                          ~component:"nes.payload" error
-                   | Ok expected
-                     when Int64.compare expected (Reader.length reader) > 0 ->
-                       Parse_context.warning context
-                         ~code:"nes.declared_size_exceeds_file"
-                         ~message:
-                           "The declared NES ROM payload is larger than the \
-                            file."
-                         ~component:"nes.payload" ()
-                   | Ok _ -> ())))
+                   | Ok expected -> (
+                       let input_length = Reader.length reader in
+                       if Int64.compare expected input_length > 0 then
+                         Parse_context.error context
+                           ~code:"nes.declared_size_exceeds_file"
+                           ~message:
+                             "The declared NES ROM payload is larger than the \
+                              file."
+                           ~component:"nes.payload"
+                           ~span:(Span.unsafe ~start:4L ~length:6L)
+                           ~expected:(Int64.to_string expected ^ " bytes")
+                           ~actual:(Int64.to_string input_length ^ " bytes")
+                           ~recoverable:true ()
+                       else if Int64.compare expected input_length < 0 then
+                         Parse_context.warning context ~code:"nes.trailing_data"
+                           ~message:
+                             "Bytes remain after the declared NES ROM payload."
+                           ~component:"nes.payload" ();
+                       let payload_children = ref [] in
+                       let add_payload = function
+                         | None -> ()
+                         | Some node ->
+                             payload_children := node :: !payload_children
+                       in
+                       add_payload
+                         (payload_range context ~id:"trainer" ~label:"Trainer"
+                            ~offset:16L ~length:trainer);
+                       add_payload
+                         (payload_range context ~id:"prg_rom" ~label:"PRG ROM"
+                            ~offset:prg_offset ~length:prg);
+                       add_payload
+                         (payload_range context ~id:"chr_rom" ~label:"CHR ROM"
+                            ~offset:chr_offset ~length:chr);
+                       let actual_end = Int64.min expected input_length in
+                       let payload_length =
+                         Int64.max 0L (Int64.sub actual_end 16L)
+                       in
+                       match
+                         Parse_context.node context ~id:"payload"
+                           ~path:"nes.payload" ~label:"ROM payload"
+                           ~span:(Span.unsafe ~start:16L ~length:payload_length)
+                           ~value:
+                             (Value.Collection (List.length !payload_children))
+                           ~children:(List.rev !payload_children)
+                           ()
+                       with
+                       | None -> ()
+                       | Some node -> children := node :: !children))))
        | _ -> ()));
   let root =
     Parse_context.node context ~id:"nes" ~path:"nes" ~label:"NES ROM header"

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Validate all 156 Game Boy Advance Nintendo logo bytes with documented flag masks and attach exact mismatch diagnostics.
+- Detect Game Boy Advance save-memory SDK strings under the parser work budget.
+- Add NES trainer, PRG ROM, and CHR ROM spans plus PRG and CHR bank counts.
+- Add Game Boy ROM and external RAM bank counts and a checked ROM-image span.
+- Mark truncated declared ROM payloads partial and report trailing bytes separately.
+
 ## 0.1.0
 
 Initial release.

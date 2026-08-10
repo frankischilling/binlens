@@ -7,11 +7,12 @@ let coverage =
     supported =
       [ "title and CGB flag";
         "cartridge, ROM, and RAM size codes";
+        "declared ROM span and bank counts";
         "destination and version";
         "header checksum";
         "global checksum within the work budget"
       ];
-    unsupported = [ "cartridge payload banks"; "mapper behavior"; "emulation" ]
+    unsupported = [ "bank-switch behavior"; "save-data decoding"; "emulation" ]
   }
 
 let logo =
@@ -176,6 +177,11 @@ let parse limits reader =
     and version = Parser_common.u8 context 0x14cL
     and stored_header_checksum = Parser_common.u8 context 0x14dL
     and stored_global_checksum = Parser_common.u16 context Endian.Big 0x14eL in
+    let declared_rom_size =
+      Option.bind rom_code (fun value -> rom_size (Int64.to_int value))
+    and declared_ram_size =
+      Option.bind ram_code (fun value -> ram_size (Int64.to_int value))
+    in
     (match cartridge with
     | Some value ->
         add "cartridge_type" "Cartridge type" 0x147L 1L
@@ -184,27 +190,38 @@ let parse limits reader =
     (match rom_code with
     | Some value -> (
         add "rom_size_code" "ROM size code" 0x148L 1L (Value.unsigned 8 value);
-        match rom_size (Int64.to_int value) with
+        match declared_rom_size with
         | Some size ->
             add "rom_size" "Declared ROM size" 0x148L 1L
               (Value.unsigned 64 size);
-            if Int64.compare size (Reader.length reader) <> 0 then
-              Parse_context.warning context ~code:"gameboy.rom_size_mismatch"
-                ~message:
-                  "The declared Game Boy ROM size does not match the file size."
-                ~component:"gameboy.header" ()
+            add "rom_bank_count" "ROM bank count" 0x148L 1L
+              (Value.unsigned 64 (Int64.div size 16_384L))
         | None ->
             Parse_context.warning context ~code:"gameboy.unknown_rom_size"
               ~message:"The Game Boy ROM size code is not recognized."
               ~component:"gameboy.header" ())
     | None -> ());
     (match ram_code with
-    | Some value ->
+    | Some value -> (
         add "ram_size_code" "RAM size code" 0x149L 1L
           (Value.enum 8 value
              (Option.map
                 (fun size -> Int64.to_string size ^ " bytes")
-                (ram_size (Int64.to_int value))))
+                declared_ram_size));
+        match declared_ram_size with
+        | Some size ->
+            add "ram_size" "External RAM size" 0x149L 1L
+              (Value.unsigned 64 size);
+            let banks =
+              if Int64.equal size 0L then 0L
+              else Int64.div (Int64.add size 8_191L) 8_192L
+            in
+            add "ram_bank_count" "External RAM bank count" 0x149L 1L
+              (Value.unsigned 64 banks)
+        | None ->
+            Parse_context.warning context ~code:"gameboy.unknown_ram_size"
+              ~message:"The Game Boy RAM size code is not recognized."
+              ~component:"gameboy.header" ())
     | None -> ());
     (match destination with
     | Some value ->
@@ -230,7 +247,7 @@ let parse limits reader =
             ~message:"The Game Boy header checksum is invalid."
             ~component:"gameboy.checksum" ()
     | None -> ());
-    match stored_global_checksum with
+    (match stored_global_checksum with
     | Some stored ->
         let length = Reader.length reader in
         if
@@ -262,6 +279,30 @@ let parse limits reader =
               ~code:"gameboy.global_checksum_mismatch"
               ~message:"The Game Boy global checksum is invalid."
               ~component:"gameboy.checksum" ()
+    | None -> ());
+    match declared_rom_size with
+    | Some size when Int64.compare size (Reader.length reader) <= 0 ->
+        (match
+           Parse_context.node context ~id:"rom_payload"
+             ~path:"gameboy.rom_payload" ~label:"ROM image"
+             ~span:(Span.unsafe ~start:0L ~length:size)
+             ~value:(Value.Bytes { summary = "not copied"; length = size })
+             ()
+         with
+        | None -> ()
+        | Some node -> children := node :: !children);
+        if Int64.compare size (Reader.length reader) < 0 then
+          Parse_context.warning context ~code:"gameboy.trailing_data"
+            ~message:"Bytes remain after the declared Game Boy ROM image."
+            ~component:"gameboy.payload" ()
+    | Some size ->
+        Parse_context.error context ~code:"gameboy.rom_size_exceeds_file"
+          ~message:"The declared Game Boy ROM size is larger than the file."
+          ~component:"gameboy.payload"
+          ~span:(Span.unsafe ~start:0x148L ~length:1L)
+          ~expected:(Int64.to_string size ^ " bytes")
+          ~actual:(Int64.to_string (Reader.length reader) ^ " bytes")
+          ~recoverable:true ()
     | None -> ());
   let root =
     Parse_context.node context ~id:"gameboy" ~path:"gameboy"
