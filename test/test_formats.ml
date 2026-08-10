@@ -5,6 +5,11 @@ let parse format bytes =
   | Ok (_, result) -> result
   | Error error -> Alcotest.fail (Error.to_string error)
 
+let parse_with_limits format limits bytes =
+  match Registry.parse ~format limits (Reader.of_bytes bytes) with
+  | Ok (_, result) -> result
+  | Error error -> Alcotest.fail (Error.to_string error)
+
 let require_root result =
   match result.Format.root with
   | Some root -> root
@@ -13,6 +18,12 @@ let require_root result =
 let assert_path result path =
   let root = require_root result in
   Alcotest.(check bool) path true (Option.is_some (Node.find_by_path root path))
+
+let require_path result path =
+  let root = require_root result in
+  match Node.find_by_path root path with
+  | Some node -> node
+  | None -> Alcotest.failf "missing path %s" path
 
 let assert_no_errors result =
   let errors =
@@ -108,14 +119,46 @@ let test_rom_headers () =
   let nes = parse "nes" (Fixture_builder.nes ()) in
   assert_no_errors nes;
   assert_path nes "nes.mapper";
+  assert_path nes "nes.prg_bank_count";
+  assert_path nes "nes.payload.prg_rom";
+  let prg = require_path nes "nes.payload.prg_rom" in
+  Alcotest.(check int64) "PRG start" 16L (Span.start prg.Node.span);
+  Alcotest.(check int64) "PRG length" 16_384L (Span.length prg.Node.span);
   let nes2 = parse "nes" (Fixture_builder.nes ~nes2:true ()) in
   assert_path nes2 "nes.submapper";
   let gb = parse "gameboy" (Fixture_builder.gameboy ()) in
   assert_no_errors gb;
   assert_path gb "gameboy.header_checksum";
+  assert_path gb "gameboy.rom_bank_count";
+  assert_path gb "gameboy.rom_payload";
+  let rom = require_path gb "gameboy.rom_payload" in
+  Alcotest.(check int64) "GB ROM length" 32_768L (Span.length rom.Node.span);
   let gba = parse "gba" (Fixture_builder.gba ()) in
   assert_no_errors gba;
-  assert_path gba "gba.header_checksum"
+  assert_path gba "gba.nintendo_logo";
+  assert_path gba "gba.header_checksum";
+  let logo = require_path gba "gba.nintendo_logo" in
+  Alcotest.(check int64) "GBA logo start" 4L (Span.start logo.Node.span);
+  Alcotest.(check int64) "GBA logo length" 156L (Span.length logo.Node.span);
+  let trainer = parse "nes" (Fixture_builder.nes ~trainer:true ()) in
+  assert_no_errors trainer;
+  assert_path trainer "nes.payload.trainer";
+  let save =
+    parse "gba" (Fixture_builder.gba ~save_signature:"FLASH1M_V103" ())
+  in
+  assert_no_errors save;
+  assert_path save "gba.save_memory.flash_128k";
+  let several =
+    parse "gba" (Fixture_builder.gba ~save_signature:"EEPROM_V000SRAM_V000" ())
+  in
+  assert_path several "gba.save_memory.eeprom";
+  assert_path several "gba.save_memory.sram";
+  Alcotest.(check bool)
+    "several save signatures" true
+    (List.exists
+       (fun diagnostic ->
+         String.equal diagnostic.Diagnostic.code "gba.multiple_save_signatures")
+       several.diagnostics)
 
 let test_rom_malformed () =
   let gb = Fixture_builder.corrupt_u8 (Fixture_builder.gameboy ()) 0x14d 0 in
@@ -135,6 +178,61 @@ let test_rom_malformed () =
        (fun diagnostic ->
          String.equal diagnostic.Diagnostic.code "gba.invalid_fixed_value")
        result.diagnostics);
+  List.iter
+    (fun logo_index ->
+      let offset = 4 + logo_index in
+      let bytes =
+        Fixture_builder.corrupt_u8 (Fixture_builder.gba ()) offset 0
+      in
+      let result = parse "gba" bytes in
+      let diagnostic =
+        List.find_opt
+          (fun diagnostic ->
+            String.equal diagnostic.Diagnostic.code "gba.invalid_logo")
+          result.diagnostics
+      in
+      match diagnostic with
+      | Some { Diagnostic.span = Some span; _ } ->
+          Alcotest.(check int64)
+            "logo mismatch offset" (Int64.of_int offset) (Span.start span)
+      | _ -> Alcotest.fail "missing GBA logo diagnostic span")
+    [ 0; 78; 155 ];
+  let allowed_logo_bits = Bytes.copy (Fixture_builder.gba ()) in
+  Fixture_builder.set_u8 allowed_logo_bits 0x9c 0xa5;
+  Fixture_builder.set_u8 allowed_logo_bits 0x9e 0xfb;
+  let result = parse "gba" allowed_logo_bits in
+  Alcotest.(check bool)
+    "allowed GBA logo bits" false
+    (List.exists
+       (fun diagnostic ->
+         String.equal diagnostic.Diagnostic.code "gba.invalid_logo")
+       result.diagnostics);
+  let short_nes =
+    Fixture_builder.truncate (Fixture_builder.nes ()) (16 + 128)
+  in
+  let result = parse "nes" short_nes in
+  Alcotest.(check bool) "truncated NES payload is partial" true result.partial;
+  Alcotest.(check bool)
+    "NES payload error" true
+    (List.exists
+       (fun diagnostic ->
+         String.equal diagnostic.Diagnostic.code
+           "nes.declared_size_exceeds_file")
+       result.diagnostics);
+  let exponent_nes = Bytes.copy (Fixture_builder.nes ~nes2:true ()) in
+  Fixture_builder.set_u8 exponent_nes 4 6;
+  Fixture_builder.set_u8 exponent_nes 9 0x0f;
+  let result = parse "nes" exponent_nes in
+  let size = require_path result "nes.prg_size" in
+  Alcotest.(check string)
+    "NES 2.0 exponent size" "10"
+    (Value.to_string size.Node.value);
+  let small_work_limit = { Limits.default with max_work_units = 2 } in
+  let result =
+    parse_with_limits "gba" small_work_limit
+      (Fixture_builder.gba ~save_signature:"SRAM_V110" ())
+  in
+  Alcotest.(check bool) "save scan work limit" true result.limit_reached;
   Alcotest.(check bool)
     "truncated NES" true
     (parse "nes" (Fixture_builder.truncate (Fixture_builder.nes ()) 8)).partial
@@ -144,7 +242,7 @@ let test_detection () =
     [ ("elf", Fixture_builder.elf64_little ());
       ("pe", Fixture_builder.pe32 ());
       ("nes", Fixture_builder.nes ());
-      ("gameboy", Fixture_builder.gameboy ());
+      ("gameboy", Fixture_builder.gameboy ~full_payload:false ());
       ("gba", Fixture_builder.gba ())
     ]
   in
@@ -163,7 +261,7 @@ let test_truncation () =
       ("pe", Fixture_builder.pe32 ());
       ("pe", Fixture_builder.pe32_plus ());
       ("nes", Fixture_builder.nes ());
-      ("gameboy", Fixture_builder.gameboy ());
+      ("gameboy", Fixture_builder.gameboy ~full_payload:false ());
       ("gba", Fixture_builder.gba ())
     ]
   in
