@@ -208,7 +208,7 @@ let test_pe_rva_mapping () =
     Fixture_builder.set_u32 bytes Endian.Little (directory_offset + 4) 0x10L;
     let result = parse "pe" bytes in
     assert_no_errors result;
-    let mapping = require_path result "pe.directory_mappings[0]" in
+    let mapping = require_path result "pe.directory_mappings[3]" in
     Alcotest.(check int64)
       "section mapping offset" 0x200L
       (Span.start mapping.Node.span);
@@ -216,12 +216,12 @@ let test_pe_rva_mapping () =
       "section mapping length" 0x10L
       (Span.length mapping.Node.span)
   in
-  check_section_mapping (Fixture_builder.pe32 ()) 0xf8;
-  check_section_mapping (Fixture_builder.pe32_plus ()) 0x108;
+  check_section_mapping (Fixture_builder.pe32 ()) 0x110;
+  check_section_mapping (Fixture_builder.pe32_plus ()) 0x120;
   let header = Fixture_builder.pe32 () in
-  Fixture_builder.set_u32 header Endian.Little 0xf8 0x80L;
-  Fixture_builder.set_u32 header Endian.Little 0xfc 0x10L;
-  let mapping = require_path (parse "pe" header) "pe.directory_mappings[0]" in
+  Fixture_builder.set_u32 header Endian.Little 0x110 0x80L;
+  Fixture_builder.set_u32 header Endian.Little 0x114 0x10L;
+  let mapping = require_path (parse "pe" header) "pe.directory_mappings[3]" in
   Alcotest.(check int64)
     "header mapping offset" 0x80L
     (Span.start mapping.Node.span);
@@ -269,6 +269,17 @@ let test_pe_directory_records () =
       assert_path result
         "pe.directory_mappings[5].base_relocation_blocks[0].entries[0].type";
       assert_path result "pe.directory_mappings[6].debug_directories[0].type";
+      assert_path result "pe.directory_mappings[0].exports.names[0].name";
+      assert_path result "pe.directory_mappings[0].exports.names[0].ordinal";
+      assert_path result "pe.directory_mappings[1].imports[0].library";
+      assert_path result
+        "pe.directory_mappings[1].imports[0].thunks[0].name";
+      assert_path result
+        "pe.directory_mappings[1].imports[0].thunks[1].ordinal";
+      assert_path result
+        "pe.directory_mappings[2].resources.root.entries[0].name";
+      assert_path result
+        "pe.directory_mappings[2].resources.root.entries[0].directory.entries[0].data.payload";
       let certificate =
         require_path result "pe.directory_mappings[4].certificates[0]"
       in
@@ -281,7 +292,7 @@ let test_pe_directory_records () =
 
 let test_pe_directory_records_malformed () =
   let small_certificate = Fixture_builder.pe32_directories () in
-  Fixture_builder.set_u32 small_certificate Endian.Little 0x500 4L;
+  Fixture_builder.set_u32 small_certificate Endian.Little 0x800 4L;
   Alcotest.(check bool)
     "small certificate" true (parse "pe" small_certificate).partial;
   let bad_relocation = Fixture_builder.pe32_directories () in
@@ -295,7 +306,7 @@ let test_pe_directory_records_malformed () =
   let misaligned_certificate = Fixture_builder.pe32_directories () in
   Fixture_builder.set_u32 misaligned_certificate Endian.Little
     (0xf8 + (4 * 8))
-    0x501L;
+    0x801L;
   let result = parse "pe" misaligned_certificate in
   Alcotest.(check bool)
     "certificate alignment diagnostic" true
@@ -304,6 +315,70 @@ let test_pe_directory_records_malformed () =
          String.equal diagnostic.Diagnostic.code
            "pe.certificate_table_misaligned")
        result.diagnostics)
+
+let test_pe_export_import_resource_malformed () =
+  let bad_ordinal = Fixture_builder.pe32_directories () in
+  Fixture_builder.set_u16 bad_ordinal Endian.Little 0x340 4;
+  let result = parse "pe" bad_ordinal in
+  Alcotest.(check bool)
+    "export ordinal range" true
+    (List.exists
+       (fun diagnostic ->
+         String.equal diagnostic.Diagnostic.code
+           "pe.export_ordinal_out_of_range")
+       result.diagnostics);
+  let unterminated_imports = Fixture_builder.pe32_directories () in
+  Fixture_builder.set_u32 unterminated_imports Endian.Little 0x104 20L;
+  let result = parse "pe" unterminated_imports in
+  Alcotest.(check bool)
+    "import descriptor terminator" true
+    (List.exists
+       (fun diagnostic ->
+         String.equal diagnostic.Diagnostic.code
+           "pe.import_descriptors_unterminated")
+       result.diagnostics);
+  let cyclic_resource = Fixture_builder.pe32_directories () in
+  Fixture_builder.set_u32 cyclic_resource Endian.Little 0x514 0x8000_0000L;
+  let result = parse "pe" cyclic_resource in
+  Alcotest.(check bool)
+    "resource cycle" true
+    (List.exists
+       (fun diagnostic ->
+         String.equal diagnostic.Diagnostic.code "pe.resource_cycle")
+       result.diagnostics);
+  let shallow_limits = { Limits.default with max_depth = 0 } in
+  let result =
+    parse_with_limits "pe" shallow_limits (Fixture_builder.pe32_directories ())
+  in
+  Alcotest.(check bool) "resource depth limit" true result.limit_reached;
+  let short_string_limits = { Limits.default with max_string_bytes = 4 } in
+  let result =
+    parse_with_limits "pe" short_string_limits
+      (Fixture_builder.pe32_directories ())
+  in
+  Alcotest.(check bool) "PE string limit" true result.limit_reached;
+  let unterminated_name = Fixture_builder.pe32_directories () in
+  Fixture_builder.set_u32 unterminated_name Endian.Little 0xf8 0L;
+  Fixture_builder.set_u32 unterminated_name Endian.Little 0xfc 0L;
+  Bytes.fill unterminated_name 0x430 (0x800 - 0x430) 'A';
+  let result = parse "pe" unterminated_name in
+  Alcotest.(check bool)
+    "unterminated import name" true
+    (List.exists
+       (fun diagnostic ->
+         String.equal diagnostic.Diagnostic.code "pe.unterminated_string")
+       result.diagnostics);
+  let excessive_thunks = Fixture_builder.pe32_directories () in
+  Fixture_builder.set_u32 excessive_thunks Endian.Little 0xf8 0L;
+  Fixture_builder.set_u32 excessive_thunks Endian.Little 0xfc 0L;
+  for index = 0 to 9 do
+    Fixture_builder.set_u32 excessive_thunks Endian.Little
+      (0x440 + (index * 4))
+      0x8000_0007L
+  done;
+  let table_limits = { Limits.default with max_table_entries = 24 } in
+  let result = parse_with_limits "pe" table_limits excessive_thunks in
+  Alcotest.(check bool) "import thunk table limit" true result.limit_reached
 
 let test_pe_malformed () =
   let invalid_mz = Fixture_builder.corrupt_u8 (Fixture_builder.pe32 ()) 0 0 in
@@ -535,6 +610,8 @@ let () =
             test_pe_directory_records;
           Alcotest.test_case "malformed directory records" `Quick
             test_pe_directory_records_malformed;
+          Alcotest.test_case "malformed exports imports and resources" `Quick
+            test_pe_export_import_resource_malformed;
           Alcotest.test_case "malformed" `Quick test_pe_malformed;
           Alcotest.test_case "limits and ranges" `Quick
             test_parser_limits_and_ranges

@@ -371,24 +371,75 @@ let pe32_plus () = pe ~plus:true
 
 let pe_directories ~plus =
   let original = pe ~plus in
-  let bytes = Bytes.extend original 0 (0x520 - Bytes.length original) in
+  let bytes = Bytes.extend original 0 (0x820 - Bytes.length original) in
   let optional_offset = 0x98 in
   let directory_offset = optional_offset + if plus then 112 else 96 in
   let section_offset = optional_offset + if plus then 240 else 224 in
-  set_u32 bytes Endian.Little (section_offset + 8) 0x200L;
-  set_u32 bytes Endian.Little (section_offset + 16) 0x200L;
+  set_u32 bytes Endian.Little (section_offset + 8) 0x600L;
+  set_u32 bytes Endian.Little (section_offset + 16) 0x600L;
   let set_directory index address size =
     let entry = directory_offset + (index * 8) in
     set_u32 bytes Endian.Little entry address;
     set_u32 bytes Endian.Little (entry + 4) size
   in
-  set_directory 4 0x500L 16L;
+  set_directory 0 0x1100L 0x60L;
+  set_directory 1 0x1200L 40L;
+  set_directory 2 0x1300L 0x80L;
+  set_directory 4 0x800L 16L;
   set_directory 5 0x1040L 12L;
   set_directory 6 0x1060L 28L;
-  set_u32 bytes Endian.Little 0x500 12L;
-  set_u16 bytes Endian.Little 0x504 0x200;
-  set_u16 bytes Endian.Little 0x506 2;
-  set_string bytes 0x508 "CERT";
+  set_u32 bytes Endian.Little 0x300 0L;
+  set_u32 bytes Endian.Little 0x304 0x6500_0000L;
+  set_u16 bytes Endian.Little 0x308 1;
+  set_u16 bytes Endian.Little 0x30a 0;
+  set_u32 bytes Endian.Little 0x30c 0x1128L;
+  set_u32 bytes Endian.Little 0x310 1L;
+  set_u32 bytes Endian.Little 0x314 1L;
+  set_u32 bytes Endian.Little 0x318 1L;
+  set_u32 bytes Endian.Little 0x31c 0x1138L;
+  set_u32 bytes Endian.Little 0x320 0x113cL;
+  set_u32 bytes Endian.Little 0x324 0x1140L;
+  set_string bytes 0x328 "BINLENS.dll\000";
+  set_u32 bytes Endian.Little 0x338 0x1580L;
+  set_u32 bytes Endian.Little 0x33c 0x1150L;
+  set_u16 bytes Endian.Little 0x340 0;
+  set_string bytes 0x350 "exported\000";
+  set_u32 bytes Endian.Little 0x400 0x1240L;
+  set_u32 bytes Endian.Little 0x404 0L;
+  set_u32 bytes Endian.Little 0x408 0L;
+  set_u32 bytes Endian.Little 0x40c 0x1230L;
+  set_u32 bytes Endian.Little 0x410 0x1280L;
+  set_string bytes 0x430 "KERNEL32.dll\000";
+  if plus then (
+    set_u64 bytes Endian.Little 0x440 0x1270L;
+    set_u64 bytes Endian.Little 0x448 (Int64.logor Int64.min_int 7L);
+    set_u64 bytes Endian.Little 0x450 0L)
+  else (
+    set_u32 bytes Endian.Little 0x440 0x1270L;
+    set_u32 bytes Endian.Little 0x444 0x8000_0007L;
+    set_u32 bytes Endian.Little 0x448 0L);
+  set_u16 bytes Endian.Little 0x470 3;
+  set_string bytes 0x472 "CreateFileA\000";
+  set_u16 bytes Endian.Little 0x50c 1;
+  set_u32 bytes Endian.Little 0x510 0x8000_0070L;
+  set_u32 bytes Endian.Little 0x514 0x8000_0020L;
+  set_u16 bytes Endian.Little 0x52e 1;
+  set_u32 bytes Endian.Little 0x530 10L;
+  set_u32 bytes Endian.Little 0x534 0x40L;
+  set_u32 bytes Endian.Little 0x540 0x1580L;
+  set_u32 bytes Endian.Little 0x544 4L;
+  set_u32 bytes Endian.Little 0x548 1200L;
+  set_u32 bytes Endian.Little 0x54c 0L;
+  set_u16 bytes Endian.Little 0x570 4;
+  set_u16 bytes Endian.Little 0x572 (Char.code 'I');
+  set_u16 bytes Endian.Little 0x574 (Char.code 'C');
+  set_u16 bytes Endian.Little 0x576 (Char.code 'O');
+  set_u16 bytes Endian.Little 0x578 (Char.code 'N');
+  set_string bytes 0x780 "DATA";
+  set_u32 bytes Endian.Little 0x800 12L;
+  set_u16 bytes Endian.Little 0x804 0x200;
+  set_u16 bytes Endian.Little 0x806 2;
+  set_string bytes 0x808 "CERT";
   set_u32 bytes Endian.Little 0x240 0x1000L;
   set_u32 bytes Endian.Little 0x244 12L;
   set_u16 bytes Endian.Little 0x248 0x3001;
@@ -399,9 +450,9 @@ let pe_directories ~plus =
   set_u16 bytes Endian.Little 0x26a 0;
   set_u32 bytes Endian.Little 0x26c 2L;
   set_u32 bytes Endian.Little 0x270 4L;
-  set_u32 bytes Endian.Little 0x274 0x1100L;
-  set_u32 bytes Endian.Little 0x278 0x300L;
-  set_string bytes 0x300 "RSDS";
+  set_u32 bytes Endian.Little 0x274 0x15a0L;
+  set_u32 bytes Endian.Little 0x278 0x7a0L;
+  set_string bytes 0x7a0 "RSDS";
   bytes
 
 let pe32_directories () = pe_directories ~plus:false
