@@ -9,7 +9,8 @@ let coverage =
       [ "DOS MZ header and e_lfanew";
         "COFF file header";
         "PE32 and PE32+ core optional-header fields";
-        "mapped export, import, resource, certificate, relocation, and debug directories";
+        "mapped export, import, resource, certificate, relocation, and debug \
+         directories";
         "section headers and raw-data ranges"
       ];
     unsupported =
@@ -190,7 +191,8 @@ let section_window reader section ~rva =
         | Error _ -> None
         | Ok () ->
             let available =
-              min (Int64.sub virtual_length relative)
+              min
+                (Int64.sub virtual_length relative)
                 (Int64.sub section.raw_size relative)
               |> min (Int64.sub (Reader.length reader) file_offset)
             in
@@ -205,13 +207,15 @@ let rva_windows reader sections ~header_size ~rva =
       | Ok () ->
           [ { file_offset = rva;
               available =
-                min (Int64.sub header_size rva)
+                min
+                  (Int64.sub header_size rva)
                   (Int64.sub (Reader.length reader) rva)
             }
           ]
     else []
   in
-  header @ List.filter_map (fun section -> section_window reader section ~rva) sections
+  header
+  @ List.filter_map (fun section -> section_window reader section ~rva) sections
 
 let map_rva_range reader sections ~header_size ~rva ~size =
   rva_windows reader sections ~header_size ~rva
@@ -269,7 +273,8 @@ let resolve_rva_window context sections ~header_size ~component ~span ~rva =
         None
     | [ mapping ] -> Some mapping
 
-let resolve_rva_range context sections ~header_size ~component ~span ~rva ~size =
+let resolve_rva_range context sections ~header_size ~component ~span ~rva ~size
+    =
   if not (consume_mapping_work context sections ~component) then None
   else
     match
@@ -278,13 +283,15 @@ let resolve_rva_range context sections ~header_size ~component ~span ~rva ~size 
     with
     | [] ->
         Parse_context.error context ~span ~code:"pe.rva_range_unmapped"
-          ~message:"A PE relative virtual address range does not map to the file."
+          ~message:
+            "A PE relative virtual address range does not map to the file."
           ~component ~recoverable:true ();
         None
     | _ :: _ :: _ ->
         Parse_context.error context ~span ~code:"pe.rva_range_ambiguous"
           ~message:
-            "A PE relative virtual address range maps through more than one section."
+            "A PE relative virtual address range maps through more than one \
+             section."
           ~component ~recoverable:true ();
         None
     | [ mapping ] -> Some mapping.file_offset
@@ -294,7 +301,7 @@ let read_rva_string context sections ~header_size ~component ~span ~rva =
     resolve_rva_window context sections ~header_size ~component ~span ~rva
   with
   | None -> None
-  | Some mapping ->
+  | Some mapping -> (
       let available = min mapping.available (Int64.of_int max_int) in
       let maximum =
         min context.Parse_context.limits.max_string_bytes
@@ -302,7 +309,8 @@ let read_rva_string context sections ~header_size ~component ~span ~rva =
       in
       if maximum = 0 then (
         Parse_context.error context ~span ~code:"pe.string_limit"
-          ~message:"A PE string cannot be read under the configured string limit."
+          ~message:
+            "A PE string cannot be read under the configured string limit."
           ~component ~recoverable:true ();
         None)
       else
@@ -323,15 +331,15 @@ let read_rva_string context sections ~header_size ~component ~span ~rva =
                   ~component ~recoverable:true ()
               else
                 Parse_context.error context ~span ~code:"pe.unterminated_string"
-                  ~message:"A PE string is not terminated inside its mapped range."
+                  ~message:
+                    "A PE string is not terminated inside its mapped range."
                   ~component ~recoverable:true ();
             Some (Sanitize.text value, mapping.file_offset, Int64.of_int length)
+      )
 
 let mapped_string_field context sections ~header_size ~component ~span ~rva
     ~parent ~id ~label =
-  match
-    read_rva_string context sections ~header_size ~component ~span ~rva
-  with
+  match read_rva_string context sections ~header_size ~component ~span ~rva with
   | None -> None
   | Some (text, offset, length) ->
       Parser_common.field context ~parent ~id ~label ~offset ~length
@@ -347,8 +355,8 @@ let export_directory_fields context ~offset ~parent =
     | Some value ->
         fields :=
           add_field context !fields ~parent ~id ~label
-            ~offset:(Int64.add offset relative) ~length:2L
-            (Value.unsigned 16 value);
+            ~offset:(Int64.add offset relative)
+            ~length:2L (Value.unsigned 16 value);
         Some value
   in
   let add32 id label relative =
@@ -359,8 +367,8 @@ let export_directory_fields context ~offset ~parent =
     | Some value ->
         fields :=
           add_field context !fields ~parent ~id ~label
-            ~offset:(Int64.add offset relative) ~length:4L
-            (Value.unsigned 32 value);
+            ~offset:(Int64.add offset relative)
+            ~length:4L (Value.unsigned 32 value);
         Some value
   in
   ignore (add32 "characteristics" "Characteristics" 0L);
@@ -437,13 +445,9 @@ let parse_exports context record sections ~header_size ~offset ~parent =
             Reader.checked_mul name_count 2L,
             Reader.checked_mul function_count 4L )
         with
-        | ( Some _,
-            Some count,
-            Ok names_size,
-            Ok ordinals_size,
-            Ok functions_size ) ->
-            let name_span =
-              Span.unsafe ~start:(Int64.add offset 32L) ~length:4L
+        | Some _, Some count, Ok names_size, Ok ordinals_size, Ok functions_size
+          -> (
+            let name_span = Span.unsafe ~start:(Int64.add offset 32L) ~length:4L
             and ordinal_span =
               Span.unsafe ~start:(Int64.add offset 36L) ~length:4L
             and function_span =
@@ -459,7 +463,7 @@ let parse_exports context record sections ~header_size ~offset ~parent =
               resolve_rva_range context sections ~header_size ~component
                 ~span:function_span ~rva:functions_rva ~size:functions_size
             in
-            (match (mapped_names, mapped_ordinals, mapped_functions) with
+            match (mapped_names, mapped_ordinals, mapped_functions) with
             | Some name_table, Some ordinal_table, Some function_table ->
                 for index = 0 to count - 1 do
                   let name_pointer_offset =
@@ -468,11 +472,10 @@ let parse_exports context record sections ~header_size ~offset ~parent =
                     Int64.add ordinal_table (Int64.of_int (index * 2))
                   in
                   match
-                    ( Parser_common.u32 context Endian.Little
-                        name_pointer_offset,
+                    ( Parser_common.u32 context Endian.Little name_pointer_offset,
                       Parser_common.u16 context Endian.Little ordinal_offset )
                   with
-                  | Some export_name_rva, Some ordinal_index ->
+                  | Some export_name_rva, Some ordinal_index -> (
                       let entry_parent =
                         Printf.sprintf "%s.exports.names[%d]" parent index
                       in
@@ -499,16 +502,15 @@ let parse_exports context record sections ~header_size ~offset ~parent =
                             error);
                       if Int64.compare ordinal_index function_count >= 0 then
                         Parse_context.error context
-                          ~span:
-                            (Span.unsafe ~start:ordinal_offset ~length:2L)
+                          ~span:(Span.unsafe ~start:ordinal_offset ~length:2L)
                           ~code:"pe.export_ordinal_out_of_range"
                           ~message:
-                            "An export ordinal index is outside the function table."
+                            "An export ordinal index is outside the function \
+                             table."
                           ~component ~recoverable:true ()
                       else
                         let function_offset =
-                          Int64.add function_table
-                            (Int64.mul ordinal_index 4L)
+                          Int64.add function_table (Int64.mul ordinal_index 4L)
                         in
                         (match
                            Parser_common.u32 context Endian.Little
@@ -520,31 +522,32 @@ let parse_exports context record sections ~header_size ~offset ~parent =
                               add_field context !entry_fields
                                 ~parent:entry_parent ~id:"function_rva"
                                 ~label:"Function RVA" ~offset:function_offset
-                                ~length:4L (Value.address 32 function_rva));
-                      (match
-                         mapped_string_field context sections ~header_size
-                           ~component
-                           ~span:
-                             (Span.unsafe ~start:name_pointer_offset ~length:4L)
-                           ~rva:export_name_rva ~parent:entry_parent ~id:"name"
-                           ~label:"Name"
-                       with
-                      | None -> ()
-                      | Some node -> entry_fields := node :: !entry_fields);
-                      let entry_fields = List.rev !entry_fields in
-                      (match
-                         Parse_context.node context
-                           ~id:(Printf.sprintf "name[%d]" index)
-                           ~path:entry_parent
-                           ~label:(Printf.sprintf "Export name %d" index)
-                           ~span:
-                             (Span.unsafe ~start:name_pointer_offset ~length:4L)
-                           ~value:
-                             (Value.Collection (List.length entry_fields))
-                           ~children:entry_fields ()
-                       with
-                      | None -> ()
-                      | Some node -> names := node :: !names)
+                                ~length:4L
+                                (Value.address 32 function_rva));
+                        (match
+                           mapped_string_field context sections ~header_size
+                             ~component
+                             ~span:
+                               (Span.unsafe ~start:name_pointer_offset
+                                  ~length:4L)
+                             ~rva:export_name_rva ~parent:entry_parent
+                             ~id:"name" ~label:"Name"
+                         with
+                        | None -> ()
+                        | Some node -> entry_fields := node :: !entry_fields);
+                        let entry_fields = List.rev !entry_fields in
+                        match
+                          Parse_context.node context
+                            ~id:(Printf.sprintf "name[%d]" index)
+                            ~path:entry_parent
+                            ~label:(Printf.sprintf "Export name %d" index)
+                            ~span:
+                              (Span.unsafe ~start:name_pointer_offset ~length:4L)
+                            ~value:(Value.Collection (List.length entry_fields))
+                            ~children:entry_fields ()
+                        with
+                        | None -> ()
+                        | Some node -> names := node :: !names)
                   | _ -> ()
                 done
             | _ -> ())
@@ -552,8 +555,10 @@ let parse_exports context record sections ~header_size ~offset ~parent =
     | _ -> ());
     let children = !fields @ List.rev !names in
     Parse_context.node context ~id:"exports" ~path:(parent ^ ".exports")
-      ~label:"Exports" ~span:(Span.unsafe ~start:offset ~length:record.size)
-      ~value:(Value.Collection (List.length children)) ~children ()
+      ~label:"Exports"
+      ~span:(Span.unsafe ~start:offset ~length:record.size)
+      ~value:(Value.Collection (List.length children))
+      ~children ()
 
 let parse_import_thunks context sections ~header_size ~plus ~table_rva
     ~source_span ~parent =
@@ -569,7 +574,8 @@ let parse_import_thunks context sections ~header_size ~plus ~table_rva
   | None -> None
   | Some mapping ->
       let maximum_entries =
-        Int64.div mapping.available width |> min (Int64.of_int max_int)
+        Int64.div mapping.available width
+        |> min (Int64.of_int max_int)
         |> Int64.to_int
       in
       let nodes = ref [] and index = ref 0 and running = ref true in
@@ -577,17 +583,16 @@ let parse_import_thunks context sections ~header_size ~plus ~table_rva
       while !running && !index < maximum_entries do
         match consume_pe_entries context ~component 1L with
         | None -> running := false
-        | Some _ ->
+        | Some _ -> (
             let entry_offset =
               Int64.add mapping.file_offset
                 (Int64.mul (Int64.of_int !index) width)
             in
             let raw =
-              if plus then
-                Parser_common.u64 context Endian.Little entry_offset
+              if plus then Parser_common.u64 context Endian.Little entry_offset
               else Parser_common.u32 context Endian.Little entry_offset
             in
-            (match raw with
+            match raw with
             | None -> running := false
             | Some raw when Int64.equal raw 0L ->
                 terminated := true;
@@ -615,7 +620,7 @@ let parse_import_thunks context sections ~header_size ~plus ~table_rva
                        ~span:source_span ~rva:name_rva ~size:2L
                    with
                    | None -> ()
-                   | Some hint_offset ->
+                   | Some hint_offset -> (
                        (match
                           Parser_common.u16 context Endian.Little hint_offset
                         with
@@ -626,7 +631,7 @@ let parse_import_thunks context sections ~header_size ~plus ~table_rva
                                ~id:"hint" ~label:"Import hint"
                                ~offset:hint_offset ~length:2L
                                (Value.unsigned 16 hint));
-                       (match Reader.checked_add name_rva 2L with
+                       match Reader.checked_add name_rva 2L with
                        | Error error ->
                            Parse_context.error_from_reader context ~component
                              error
@@ -656,16 +661,17 @@ let parse_import_thunks context sections ~header_size ~plus ~table_rva
       if !running && not !terminated then
         Parse_context.error context ~span:source_span
           ~code:"pe.import_thunks_unterminated"
-          ~message:"An import thunk table has no null entry in its mapped range."
+          ~message:
+            "An import thunk table has no null entry in its mapped range."
           ~component ~recoverable:true ();
       let nodes = List.rev !nodes in
       if nodes = [] then None
       else
         Parse_context.node context ~id:"thunks" ~path:(parent ^ ".thunks")
           ~label:"Import thunks"
-          ~span:
-            (Span.unsafe ~start:mapping.file_offset ~length:!parsed_length)
-          ~value:(Value.Collection (List.length nodes)) ~children:nodes ()
+          ~span:(Span.unsafe ~start:mapping.file_offset ~length:!parsed_length)
+          ~value:(Value.Collection (List.length nodes))
+          ~children:nodes ()
 
 let parse_imports context record sections ~header_size ~plus ~offset ~parent =
   let component = "pe.imports" in
@@ -683,8 +689,7 @@ let parse_imports context record sections ~header_size ~plus ~offset ~parent =
       for index = 0 to count - 1 do
         if !running then
           let base = Int64.add offset (Int64.of_int (index * 20)) in
-          let original_thunk =
-            Parser_common.u32 context Endian.Little base
+          let original_thunk = Parser_common.u32 context Endian.Little base
           and timestamp =
             Parser_common.u32 context Endian.Little (Int64.add base 4L)
           and forwarder_chain =
@@ -695,11 +700,7 @@ let parse_imports context record sections ~header_size ~plus ~offset ~parent =
             Parser_common.u32 context Endian.Little (Int64.add base 16L)
           in
           match
-            ( original_thunk,
-              timestamp,
-              forwarder_chain,
-              name_rva,
-              first_thunk )
+            (original_thunk, timestamp, forwarder_chain, name_rva, first_thunk)
           with
           | Some 0L, Some 0L, Some 0L, Some 0L, Some 0L ->
               terminated := true;
@@ -708,10 +709,8 @@ let parse_imports context record sections ~header_size ~plus ~offset ~parent =
               Some timestamp,
               Some forwarder_chain,
               Some name_rva,
-              Some first_thunk ) ->
-              let entry_parent =
-                Printf.sprintf "%s.imports[%d]" parent index
-              in
+              Some first_thunk ) -> (
+              let entry_parent = Printf.sprintf "%s.imports[%d]" parent index in
               let fields = ref [] in
               let add32 id label relative value =
                 fields :=
@@ -735,8 +734,7 @@ let parse_imports context record sections ~header_size ~plus ~offset ~parent =
               (if not (Int64.equal name_rva 0L) then
                  match
                    mapped_string_field context sections ~header_size ~component
-                     ~span:
-                       (Span.unsafe ~start:(Int64.add base 12L) ~length:4L)
+                     ~span:(Span.unsafe ~start:(Int64.add base 12L) ~length:4L)
                      ~rva:name_rva ~parent:entry_parent ~id:"library"
                      ~label:"Library"
                  with
@@ -750,21 +748,21 @@ let parse_imports context record sections ~header_size ~plus ~offset ~parent =
                  match
                    parse_import_thunks context sections ~header_size ~plus
                      ~table_rva:thunk_rva
-                     ~source_span:
-                       (Span.unsafe ~start:base ~length:20L)
+                     ~source_span:(Span.unsafe ~start:base ~length:20L)
                      ~parent:entry_parent
                  with
                  | None -> ()
                  | Some node -> fields := node :: !fields);
               let fields = List.rev !fields in
-              (match
-                 Parse_context.node context
-                   ~id:(Printf.sprintf "import[%d]" index) ~path:entry_parent
-                   ~label:(Printf.sprintf "Import descriptor %d" index)
-                   ~span:(Span.unsafe ~start:base ~length:20L)
-                   ~value:(Value.Collection (List.length fields))
-                   ~children:fields ()
-               with
+              match
+                Parse_context.node context
+                  ~id:(Printf.sprintf "import[%d]" index)
+                  ~path:entry_parent
+                  ~label:(Printf.sprintf "Import descriptor %d" index)
+                  ~span:(Span.unsafe ~start:base ~length:20L)
+                  ~value:(Value.Collection (List.length fields))
+                  ~children:fields ()
+              with
               | None -> ()
               | Some node -> descriptors := node :: !descriptors)
           | _ -> running := false
@@ -776,7 +774,8 @@ let parse_imports context record sections ~header_size ~plus ~offset ~parent =
           ~component ~recoverable:true ();
       let descriptors = List.rev !descriptors in
       Parse_context.node context ~id:"imports" ~path:(parent ^ ".imports")
-        ~label:"Imports" ~span:(Span.unsafe ~start:offset ~length:record.size)
+        ~label:"Imports"
+        ~span:(Span.unsafe ~start:offset ~length:record.size)
         ~value:(Value.Collection (List.length descriptors))
         ~children:descriptors ()
 
@@ -825,7 +824,7 @@ let resource_name context record ~root ~component ~span ~relative ~parent =
                   ~relative:(Int64.add relative 2L) ~length:byte_length
               with
               | None -> None
-              | Some text_offset ->
+              | Some text_offset -> (
                   if Int64.compare byte_length (Int64.of_int max_int) > 0 then (
                     Parse_context.error context ~span
                       ~code:"pe.resource_name_unrepresentable"
@@ -840,8 +839,7 @@ let resource_name context record ~root ~component ~span ~relative ~parent =
                         byte_count
                     with
                     | Error error ->
-                        Parse_context.error_from_reader context ~component
-                          error;
+                        Parse_context.error_from_reader context ~component error;
                         None
                     | Ok () -> (
                         match
@@ -874,7 +872,7 @@ let resource_name context record ~root ~component ~span ~relative ~parent =
                                  { text = Buffer.contents text;
                                    raw_hex = None;
                                    valid_utf8 = true
-                                 })))))
+                                 }))))))
 
 let parse_resources context record sections ~header_size ~offset ~parent =
   let component = "pe.resources" in
@@ -888,7 +886,8 @@ let parse_resources context record sections ~header_size ~offset ~parent =
         if Hashtbl.mem visited relative then (
           Parse_context.error context ~span:source_span
             ~code:"pe.resource_cycle"
-            ~message:"A resource directory points to an already visited directory."
+            ~message:
+              "A resource directory points to an already visited directory."
             ~component ~recoverable:true ();
           None)
         else (
@@ -924,16 +923,16 @@ let parse_resources context record sections ~header_size ~offset ~parent =
                 | Some value ->
                     fields :=
                       add_field context !fields ~parent:path ~id ~label
-                        ~offset:(Int64.add directory_offset relative) ~length:4L
-                        (Value.unsigned 32 value)
+                        ~offset:(Int64.add directory_offset relative)
+                        ~length:4L (Value.unsigned 32 value)
               and add16 id label relative value =
                 match value with
                 | None -> ()
                 | Some value ->
                     fields :=
                       add_field context !fields ~parent:path ~id ~label
-                        ~offset:(Int64.add directory_offset relative) ~length:2L
-                        (Value.unsigned 16 value)
+                        ~offset:(Int64.add directory_offset relative)
+                        ~length:2L (Value.unsigned 16 value)
               in
               add32 "characteristics" "Characteristics" 0L characteristics;
               add32 "timestamp" "Timestamp" 4L timestamp;
@@ -948,7 +947,9 @@ let parse_resources context record sections ~header_size ~offset ~parent =
                   | Error error ->
                       Parse_context.error_from_reader context ~component error
                   | Ok entry_count -> (
-                      match consume_pe_entries context ~component entry_count with
+                      match
+                        consume_pe_entries context ~component entry_count
+                      with
                       | None -> ()
                       | Some count -> (
                           match Reader.checked_mul entry_count 8L with
@@ -957,12 +958,12 @@ let parse_resources context record sections ~header_size ~offset ~parent =
                                 error
                           | Ok entries_length -> (
                               match
-                                Result.bind
-                                  (Reader.checked_add relative 16L)
+                                Result.bind (Reader.checked_add relative 16L)
                                   (fun entries_relative ->
                                     match
                                       resource_relative_range context record
-                                        ~root:offset ~component ~span:source_span
+                                        ~root:offset ~component
+                                        ~span:source_span
                                         ~relative:entries_relative
                                         ~length:entries_length
                                     with
@@ -970,7 +971,8 @@ let parse_resources context record sections ~header_size ~offset ~parent =
                                         Error
                                           (Error.make Error.Bounds
                                              "pe.resource_entries_out_of_table"
-                                             "Resource entries are outside the directory.")
+                                             "Resource entries are outside the \
+                                              directory.")
                                     | Some absolute -> Ok absolute)
                               with
                               | Error _ -> ()
@@ -988,7 +990,7 @@ let parse_resources context record sections ~header_size ~offset ~parent =
                                         (Int64.add entry_offset 4L)
                                     in
                                     match (name_raw, data_raw) with
-                                    | Some name_raw, Some data_raw ->
+                                    | Some name_raw, Some data_raw -> (
                                         let entry_path =
                                           Printf.sprintf "%s.entries[%d]" path
                                             index
@@ -996,8 +998,7 @@ let parse_resources context record sections ~header_size ~offset ~parent =
                                         let entry_fields = ref [] in
                                         (if
                                            Int64.equal
-                                             (Int64.logand name_raw
-                                                0x8000_0000L)
+                                             (Int64.logand name_raw 0x8000_0000L)
                                              0L
                                          then
                                            entry_fields :=
@@ -1046,7 +1047,8 @@ let parse_resources context record sections ~header_size ~offset ~parent =
                                               ~path:(entry_path ^ ".directory")
                                               ~label:"Resource subdirectory"
                                           else
-                                            parse_data_entry ~relative:target_relative
+                                            parse_data_entry
+                                              ~relative:target_relative
                                               ~source_span:
                                                 (Span.unsafe
                                                    ~start:
@@ -1058,22 +1060,22 @@ let parse_resources context record sections ~header_size ~offset ~parent =
                                           List.rev !entry_fields
                                           @ Option.to_list child
                                         in
-                                        (match
-                                           Parse_context.node context
-                                             ~id:
-                                               (Printf.sprintf "entry[%d]" index)
-                                             ~path:entry_path
-                                             ~label:
-                                               (Printf.sprintf
-                                                  "Resource entry %d" index)
-                                             ~span:
-                                               (Span.unsafe
-                                                  ~start:entry_offset ~length:8L)
-                                             ~value:
-                                               (Value.Collection
-                                                  (List.length children))
-                                             ~children ()
-                                         with
+                                        match
+                                          Parse_context.node context
+                                            ~id:
+                                              (Printf.sprintf "entry[%d]" index)
+                                            ~path:entry_path
+                                            ~label:
+                                              (Printf.sprintf
+                                                 "Resource entry %d" index)
+                                            ~span:
+                                              (Span.unsafe ~start:entry_offset
+                                                 ~length:8L)
+                                            ~value:
+                                              (Value.Collection
+                                                 (List.length children))
+                                            ~children ()
+                                        with
                                         | None -> ()
                                         | Some node ->
                                             entries := node :: !entries)
@@ -1083,7 +1085,8 @@ let parse_resources context record sections ~header_size ~offset ~parent =
               let children = List.rev !fields @ List.rev !entries in
               Parse_context.node context ~id:"directory" ~path ~label
                 ~span:(Span.unsafe ~start:directory_offset ~length:16L)
-                ~value:(Value.Collection (List.length children)) ~children ())
+                ~value:(Value.Collection (List.length children))
+                ~children ())
   and parse_data_entry ~relative ~source_span ~path =
     match
       resource_relative_range context record ~root:offset ~component
@@ -1091,8 +1094,7 @@ let parse_resources context record sections ~header_size ~offset ~parent =
     with
     | None -> None
     | Some data_offset ->
-        let data_rva =
-          Parser_common.u32 context Endian.Little data_offset
+        let data_rva = Parser_common.u32 context Endian.Little data_offset
         and size =
           Parser_common.u32 context Endian.Little (Int64.add data_offset 4L)
         and code_page =
@@ -1107,8 +1109,8 @@ let parse_resources context record sections ~header_size ~offset ~parent =
           | Some value ->
               fields :=
                 add_field context !fields ~parent:path ~id ~label
-                  ~offset:(Int64.add data_offset relative) ~length:4L
-                  (constructor value)
+                  ~offset:(Int64.add data_offset relative)
+                  ~length:4L (constructor value)
         in
         add32 "data_rva" "Data RVA" 0L data_rva (Value.address 32);
         add32 "size" "Data size" 4L size (Value.unsigned 32);
@@ -1118,10 +1120,11 @@ let parse_resources context record sections ~header_size ~offset ~parent =
         | Some rva, Some size when not (Int64.equal size 0L) -> (
             match
               resolve_rva_range context sections ~header_size ~component
-                ~span:(Span.unsafe ~start:data_offset ~length:4L) ~rva ~size
+                ~span:(Span.unsafe ~start:data_offset ~length:4L)
+                ~rva ~size
             with
             | None -> ()
-            | Some payload_offset ->
+            | Some payload_offset -> (
                 fields :=
                   add_field context !fields ~parent:path ~id:"file_offset"
                     ~label:"File offset" ~offset:data_offset ~length:4L
@@ -1130,24 +1133,27 @@ let parse_resources context record sections ~header_size ~offset ~parent =
                   Option.value ~default:""
                     (Parser_common.hex context payload_offset (min size 16L))
                 in
-                (match
-                   Parse_context.node context ~id:"payload"
-                     ~path:(path ^ ".payload") ~label:"Resource payload"
-                     ~span:(Span.unsafe ~start:payload_offset ~length:size)
-                     ~value:(Value.Bytes { summary; length = size }) ()
-                 with
+                match
+                  Parse_context.node context ~id:"payload"
+                    ~path:(path ^ ".payload") ~label:"Resource payload"
+                    ~span:(Span.unsafe ~start:payload_offset ~length:size)
+                    ~value:(Value.Bytes { summary; length = size })
+                    ()
+                with
                 | None -> ()
                 | Some node -> fields := node :: !fields))
         | _ -> ());
         let fields = List.rev !fields in
         Parse_context.node context ~id:"data" ~path ~label:"Resource data"
           ~span:(Span.unsafe ~start:data_offset ~length:16L)
-          ~value:(Value.Collection (List.length fields)) ~children:fields ()
+          ~value:(Value.Collection (List.length fields))
+          ~children:fields ()
   in
   let root_span = Span.unsafe ~start:offset ~length:(min record.size 16L) in
   let root =
     parse_directory ~relative:0L ~depth:0 ~source_span:record.span
-      ~path:(parent ^ ".resources.root") ~label:"Resource root"
+      ~path:(parent ^ ".resources.root")
+      ~label:"Resource root"
   in
   Parse_context.node context ~id:"resources" ~path:(parent ^ ".resources")
     ~label:"Resources" ~span:root_span
@@ -1519,7 +1525,9 @@ let parse_debug_directories context record ~offset ~parent =
 let parse_mapped_directory context record sections ~header_size ~plus
     ~file_offset ~parent =
   match record.index with
-  | 0 -> parse_exports context record sections ~header_size ~offset:file_offset ~parent
+  | 0 ->
+      parse_exports context record sections ~header_size ~offset:file_offset
+        ~parent
   | 1 ->
       parse_imports context record sections ~header_size ~plus
         ~offset:file_offset ~parent

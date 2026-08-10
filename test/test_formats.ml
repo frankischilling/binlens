@@ -272,10 +272,8 @@ let test_pe_directory_records () =
       assert_path result "pe.directory_mappings[0].exports.names[0].name";
       assert_path result "pe.directory_mappings[0].exports.names[0].ordinal";
       assert_path result "pe.directory_mappings[1].imports[0].library";
-      assert_path result
-        "pe.directory_mappings[1].imports[0].thunks[0].name";
-      assert_path result
-        "pe.directory_mappings[1].imports[0].thunks[1].ordinal";
+      assert_path result "pe.directory_mappings[1].imports[0].thunks[0].name";
+      assert_path result "pe.directory_mappings[1].imports[0].thunks[1].ordinal";
       assert_path result
         "pe.directory_mappings[2].resources.root.entries[0].name";
       assert_path result
