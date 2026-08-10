@@ -72,6 +72,62 @@ let test_pe_variants () =
       assert_path result "pe.sections[0].name")
     [ Fixture_builder.pe32 (); Fixture_builder.pe32_plus () ]
 
+let test_pe_rva_mapping () =
+  let check_section_mapping bytes directory_offset =
+    Fixture_builder.set_u32 bytes Endian.Little directory_offset 0x1000L;
+    Fixture_builder.set_u32 bytes Endian.Little (directory_offset + 4) 0x10L;
+    let result = parse "pe" bytes in
+    assert_no_errors result;
+    let mapping = require_path result "pe.directory_mappings[0]" in
+    Alcotest.(check int64)
+      "section mapping offset" 0x200L (Span.start mapping.Node.span);
+    Alcotest.(check int64)
+      "section mapping length" 0x10L (Span.length mapping.Node.span)
+  in
+  check_section_mapping (Fixture_builder.pe32 ()) 0xf8;
+  check_section_mapping (Fixture_builder.pe32_plus ()) 0x108;
+  let header = Fixture_builder.pe32 () in
+  Fixture_builder.set_u32 header Endian.Little 0xf8 0x80L;
+  Fixture_builder.set_u32 header Endian.Little 0xfc 0x10L;
+  let mapping =
+    require_path (parse "pe" header) "pe.directory_mappings[0]"
+  in
+  Alcotest.(check int64)
+    "header mapping offset" 0x80L (Span.start mapping.Node.span);
+  let certificate = Fixture_builder.pe32 () in
+  Fixture_builder.set_u32 certificate Endian.Little (0xf8 + (4 * 8)) 0x200L;
+  Fixture_builder.set_u32 certificate Endian.Little (0xfc + (4 * 8)) 0x10L;
+  let mapping =
+    require_path (parse "pe" certificate) "pe.directory_mappings[4]"
+  in
+  Alcotest.(check int64)
+    "certificate file offset" 0x200L (Span.start mapping.Node.span)
+
+let test_pe_rva_mapping_malformed () =
+  let unmapped = Fixture_builder.pe32 () in
+  Fixture_builder.set_u32 unmapped Endian.Little 0xf8 0x1800L;
+  Fixture_builder.set_u32 unmapped Endian.Little 0xfc 0x10L;
+  let result = parse "pe" unmapped in
+  Alcotest.(check bool) "unmapped partial" true result.partial;
+  let overlapping = Fixture_builder.pe32 () in
+  Fixture_builder.set_u16 overlapping Endian.Little 0x86 2;
+  let second = 0x178 + 40 in
+  Fixture_builder.set_string overlapping second ".dup";
+  Fixture_builder.set_u32 overlapping Endian.Little (second + 8) 0x20L;
+  Fixture_builder.set_u32 overlapping Endian.Little (second + 12) 0x1000L;
+  Fixture_builder.set_u32 overlapping Endian.Little (second + 16) 0x20L;
+  Fixture_builder.set_u32 overlapping Endian.Little (second + 20) 0x200L;
+  Fixture_builder.set_u32 overlapping Endian.Little 0xf8 0x1000L;
+  Fixture_builder.set_u32 overlapping Endian.Little 0xfc 0x10L;
+  let result = parse "pe" overlapping in
+  Alcotest.(check bool) "ambiguous partial" true result.partial;
+  Alcotest.(check bool)
+    "ambiguous diagnostic" true
+    (List.exists
+       (fun diagnostic ->
+         String.equal diagnostic.Diagnostic.code "pe.directory_ambiguous")
+       result.diagnostics)
+
 let test_pe_malformed () =
   let invalid_mz = Fixture_builder.corrupt_u8 (Fixture_builder.pe32 ()) 0 0 in
   Alcotest.(check bool) "bad MZ partial" true (parse "pe" invalid_mz).partial;
@@ -285,6 +341,9 @@ let () =
         ] );
       ( "PE",
         [ Alcotest.test_case "PE32 and PE32+" `Quick test_pe_variants;
+          Alcotest.test_case "RVA mapping" `Quick test_pe_rva_mapping;
+          Alcotest.test_case "malformed RVA mapping" `Quick
+            test_pe_rva_mapping_malformed;
           Alcotest.test_case "malformed" `Quick test_pe_malformed;
           Alcotest.test_case "limits and ranges" `Quick
             test_parser_limits_and_ranges

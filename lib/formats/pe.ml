@@ -123,6 +123,172 @@ let add_field context children ?metadata ~parent ~id ~label ~offset ~length
   | None -> children
   | Some node -> node :: children
 
+type directory_record =
+  { index : int; rva : int64; size : int64; span : Span.t }
+
+type section_map =
+  { virtual_address : int64;
+    virtual_size : int64;
+    raw_offset : int64;
+    raw_size : int64
+  }
+
+let collect_directories reader ~offset ~declared_size ~count ~maximum =
+  let wanted = min count (max 0 (declared_size / 8)) |> min maximum in
+  match
+    Reader.table_range reader ~offset ~entry_size:8L
+      ~count:(Int64.of_int wanted)
+  with
+  | Error _ -> []
+  | Ok _ ->
+      List.init wanted (fun index ->
+          let base = Int64.add offset (Int64.of_int (index * 8)) in
+          match
+            ( Reader.u32 reader Endian.Little base,
+              Reader.u32 reader Endian.Little (Int64.add base 4L) )
+          with
+          | Ok rva, Ok size ->
+              Some
+                { index; rva; size; span = Span.unsafe ~start:base ~length:8L }
+          | _ -> None)
+      |> List.filter_map Fun.id
+
+let collect_section_map reader ~offset ~count ~maximum =
+  if count > maximum then []
+  else
+    match
+      Reader.table_range reader ~offset ~entry_size:40L
+        ~count:(Int64.of_int count)
+    with
+    | Error _ -> []
+    | Ok _ ->
+        List.init count (fun index ->
+            let base = Int64.add offset (Int64.of_int (index * 40)) in
+            match
+              ( Reader.u32 reader Endian.Little (Int64.add base 8L),
+                Reader.u32 reader Endian.Little (Int64.add base 12L),
+                Reader.u32 reader Endian.Little (Int64.add base 16L),
+                Reader.u32 reader Endian.Little (Int64.add base 20L) )
+            with
+            | Ok virtual_size, Ok virtual_address, Ok raw_size, Ok raw_offset ->
+                Some { virtual_address; virtual_size; raw_offset; raw_size }
+            | _ -> None)
+        |> List.filter_map Fun.id
+
+let section_mapping reader section ~rva ~size =
+  if Int64.compare rva section.virtual_address < 0 then None
+  else
+    let relative = Int64.sub rva section.virtual_address in
+    let virtual_length = max section.virtual_size section.raw_size in
+    match
+      ( Reader.checked_add relative size,
+        Reader.checked_add section.raw_offset relative )
+    with
+    | Ok relative_end, Ok file_offset
+      when Int64.compare relative_end virtual_length <= 0
+           && Int64.compare relative_end section.raw_size <= 0 -> (
+        match Reader.range reader ~offset:file_offset ~length:size with
+        | Ok () -> Some file_offset
+        | Error _ -> None)
+    | _ -> None
+
+let map_directory reader sections ~header_size record =
+  if record.index = 4 then
+    match Reader.range reader ~offset:record.rva ~length:record.size with
+    | Ok () -> [ record.rva ]
+    | Error _ -> []
+  else
+    let header =
+      match Reader.checked_add record.rva record.size with
+      | Ok finish
+        when Int64.compare finish header_size <= 0
+             && Reader.range reader ~offset:record.rva ~length:record.size
+                = Ok () ->
+          [ record.rva ]
+      | _ -> []
+    in
+    header
+    @ List.filter_map
+        (fun section ->
+          section_mapping reader section ~rva:record.rva ~size:record.size)
+        sections
+
+let parse_directory_mappings context records sections ~header_size =
+  let nodes = ref [] in
+  let running = ref true in
+  List.iter
+    (fun record ->
+      if
+        !running && not (Int64.equal record.rva 0L || Int64.equal record.size 0L)
+      then
+        match
+          Limits.consume_work context.Parse_context.tracker
+            (1 + List.length sections)
+        with
+        | Error error ->
+            Parse_context.error_from_reader context ~component:"pe.rva_mapping"
+              error;
+            running := false
+        | Ok () -> (
+            match
+              map_directory context.Parse_context.reader sections ~header_size
+                record
+            with
+            | [] ->
+                Parse_context.error context ~span:record.span
+                  ~code:"pe.directory_unmapped"
+                  ~message:
+                    "A PE data directory cannot be mapped to a complete file \
+                     range."
+                  ~component:"pe.rva_mapping" ~recoverable:true ()
+            | _ :: _ :: _ ->
+                Parse_context.error context ~span:record.span
+                  ~code:"pe.directory_ambiguous"
+                  ~message:
+                    "A PE data directory maps through more than one section."
+                  ~component:"pe.rva_mapping" ~recoverable:true ()
+            | [ file_offset ] -> (
+                let parent =
+                  Printf.sprintf "pe.directory_mappings[%d]" record.index
+                in
+                let offset_node =
+                  Parser_common.field context ~parent ~id:"file_offset"
+                    ~label:"File offset" ~offset:(Span.start record.span)
+                    ~length:4L
+                    (Value.offset 64 file_offset)
+                in
+                let children = Option.to_list offset_node in
+                let label =
+                  if record.index < Array.length directory_names then
+                    directory_names.(record.index)
+                  else Printf.sprintf "Directory %d" record.index
+                in
+                match
+                  Parse_context.node context
+                    ~id:(Printf.sprintf "directory_mapping[%d]" record.index)
+                    ~path:parent ~label:(label ^ " file range")
+                    ~span:(Span.unsafe ~start:file_offset ~length:record.size)
+                    ~value:(Value.Collection (List.length children))
+                    ~children ()
+                with
+                | None -> ()
+                | Some node -> nodes := node :: !nodes)))
+    records;
+  let nodes = List.rev !nodes in
+  match records with
+  | [] -> None
+  | first :: _ ->
+      let last = List.hd (List.rev records) in
+      let start = Span.start first.span in
+      let finish =
+        match Span.end_offset last.span with Ok value -> value | Error _ -> start
+      in
+      Parse_context.node context ~id:"directory_mappings"
+        ~path:"pe.directory_mappings" ~label:"Mapped directory ranges"
+        ~span:(Span.unsafe ~start ~length:(Int64.sub finish start))
+        ~value:(Value.Collection (List.length nodes))
+        ~children:nodes ()
+
 let is_power_of_two value =
   Int64.compare value 0L > 0
   && Int64.equal (Int64.logand value (Int64.pred value)) 0L
@@ -334,6 +500,9 @@ let parse_sections context ~offset ~count =
 let parse limits reader =
   let context = Parse_context.create ~reader ~source_format:id limits in
   let children = ref [] in
+  let directory_spec = ref None
+  and section_spec = ref None
+  and mapped_header_size = ref None in
   let add ~parent id label offset length value =
     children :=
       add_field context !children ~parent ~id ~label ~offset ~length value
@@ -483,6 +652,7 @@ let parse limits reader =
                                  (Int64.add optional_offset
                                     (if plus then 108L else 92L))
                              in
+                             mapped_header_size := size_of_headers;
                              (match entry_point with
                              | Some value ->
                                  add ~parent:"pe.optional_header" "entry_point"
@@ -579,6 +749,8 @@ let parse limits reader =
                                  let declared_size =
                                    optional_size_int - minimum
                                  in
+                                 directory_spec :=
+                                   Some (directory_offset, declared_size, count);
                                  match
                                    parse_data_directories context
                                      ~parent:"pe.optional_header"
@@ -600,12 +772,30 @@ let parse limits reader =
                      Int64.add optional_offset optional_size
                    in
                    let count = Int64.to_int section_count in
+                   section_spec := Some (section_table, count);
                    match
                      parse_sections context ~offset:section_table ~count
                    with
                    | Some node -> children := node :: !children
                    | None -> ())
                | _ -> ())));
+  (match (!directory_spec, !section_spec, !mapped_header_size) with
+  | ( Some (directory_offset, declared_size, directory_count),
+      Some (section_offset, section_count),
+      Some header_size ) -> (
+      let records =
+        collect_directories reader ~offset:directory_offset ~declared_size
+          ~count:directory_count
+          ~maximum:context.Parse_context.limits.max_table_entries
+      in
+      let sections =
+        collect_section_map reader ~offset:section_offset ~count:section_count
+          ~maximum:context.Parse_context.limits.max_table_entries
+      in
+      match parse_directory_mappings context records sections ~header_size with
+      | Some node -> children := node :: !children
+      | None -> ())
+  | _ -> ());
   let root =
     Parse_context.node context ~id:"pe" ~path:"pe" ~label:"Portable Executable"
       ~span:(Parser_common.root_span reader 64L)
