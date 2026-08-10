@@ -64,6 +64,28 @@ let test_raw_and_format () =
     "format changed" true
     (has_kind Diff.Format_changed (compare left_bytes elf_bytes left elf))
 
+let test_diagnostics_and_partial () =
+  let bytes = Fixture_builder.nes () in
+  let parsed = parse "nes" bytes in
+  let warning =
+    Diagnostic.make ~severity:Diagnostic.Warning ~code:"test.condition"
+      ~message:"The condition is suspicious." ~component:"test"
+      ~recoverable:true ()
+  and error =
+    Diagnostic.make ~severity:Diagnostic.Error ~code:"test.condition"
+      ~message:"The condition is invalid." ~component:"test" ~recoverable:false
+      ()
+  in
+  let left = { parsed with Format.diagnostics = [ warning ] }
+  and right = { parsed with Format.diagnostics = [ error ]; partial = true } in
+  let differences = compare bytes bytes left right in
+  Alcotest.(check bool)
+    "diagnostic changed" true
+    (has_kind Diff.Changed_diagnostic differences);
+  Alcotest.(check bool)
+    "partial changed" true
+    (has_kind Diff.Partial_changed differences)
+
 let test_determinism () =
   let left_bytes = Fixture_builder.pe32 () in
   let right_bytes = Fixture_builder.pe32_plus () in
@@ -83,6 +105,8 @@ let () =
             test_changed_value_and_ignore;
           Alcotest.test_case "added or removed" `Quick test_added_removed;
           Alcotest.test_case "raw and format" `Quick test_raw_and_format;
+          Alcotest.test_case "diagnostics and partial" `Quick
+            test_diagnostics_and_partial;
           Alcotest.test_case "deterministic" `Quick test_determinism
         ] )
     ]

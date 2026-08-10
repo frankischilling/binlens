@@ -57,8 +57,7 @@ let difference kind path before after = { kind; path; before; after }
 let diagnostics_signature diagnostics =
   diagnostics
   |> List.map (fun diagnostic ->
-      Diagnostic.severity_to_string diagnostic.Diagnostic.severity
-      ^ ":" ^ diagnostic.code)
+      Yojson.Safe.to_string (Render_json.diagnostic diagnostic))
   |> String.concat ","
 
 let raw_diff options left_reader right_reader left right =
@@ -88,6 +87,13 @@ let compare ?(options = default_options) ~left_reader ~right_reader left right =
       difference Partial_changed "$partial"
         (Some (string_of_bool left.partial))
         (Some (string_of_bool right.partial))
+      :: !differences;
+  let left_diagnostics = diagnostics_signature left.diagnostics
+  and right_diagnostics = diagnostics_signature right.diagnostics in
+  if not (String.equal left_diagnostics right_diagnostics) then
+    differences :=
+      difference Changed_diagnostic "$diagnostics" (Some left_diagnostics)
+        (Some right_diagnostics)
       :: !differences;
   let left_nodes = Option.fold ~none:Path_map.empty ~some:map_nodes left.root in
   let right_nodes =
