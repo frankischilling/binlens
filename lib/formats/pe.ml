@@ -213,6 +213,390 @@ let map_directory reader sections ~header_size record =
           section_mapping reader section ~rva:record.rva ~size:record.size)
         sections
 
+let consume_pe_entries context ~component count =
+  match
+    Limits.consume_table_entries_int64 context.Parse_context.tracker count
+  with
+  | Error error ->
+      Parse_context.error_from_reader context ~component error;
+      None
+  | Ok () -> (
+      let count = Int64.to_int count in
+      match Limits.consume_work context.Parse_context.tracker count with
+      | Ok () -> Some count
+      | Error error ->
+          Parse_context.error_from_reader context ~component error;
+          None)
+
+let certificate_revisions = [ (0x100L, "Version 1.0"); (0x200L, "Version 2.0") ]
+
+let certificate_types =
+  [ (1L, "X.509");
+    (2L, "PKCS signed data");
+    (3L, "Reserved");
+    (4L, "Terminal Server protocol stack")
+  ]
+
+let parse_certificates context record ~offset ~parent =
+  let component = "pe.certificates" in
+  if not (Int64.equal (Int64.rem offset 8L) 0L) then
+    Parse_context.error context ~span:record.span
+      ~code:"pe.certificate_table_misaligned"
+      ~message:"The PE certificate table is not aligned to eight bytes."
+      ~component ~recoverable:true ();
+  let finish = Int64.add offset record.size in
+  let cursor = ref offset and index = ref 0 and running = ref true in
+  let nodes = ref [] in
+  while !running && Int64.compare !cursor finish < 0 do
+    let remaining = Int64.sub finish !cursor in
+    if Int64.compare remaining 8L < 0 then (
+      Parse_context.error context
+        ~span:(Span.unsafe ~start:!cursor ~length:remaining)
+        ~code:"pe.certificate_truncated_header"
+        ~message:"The certificate table ends before a complete entry header."
+        ~component ~recoverable:true ();
+      running := false)
+    else
+      match consume_pe_entries context ~component 1L with
+      | None -> running := false
+      | Some _ -> (
+          let length = Parser_common.u32 context Endian.Little !cursor
+          and revision =
+            Parser_common.u16 context Endian.Little (Int64.add !cursor 4L)
+          and kind =
+            Parser_common.u16 context Endian.Little (Int64.add !cursor 6L)
+          in
+          match (length, revision, kind) with
+          | Some length, Some revision, Some kind
+            when Int64.compare length 8L >= 0 -> (
+              match Reader.align length 8L with
+              | Error error ->
+                  Parse_context.error_from_reader context ~component error;
+                  running := false
+              | Ok padded when Int64.compare padded remaining > 0 ->
+                  Parse_context.error context ~span:record.span
+                    ~code:"pe.certificate_out_of_table"
+                    ~message:
+                      "A certificate entry extends beyond the certificate \
+                       table."
+                    ~component ~recoverable:true ();
+                  running := false
+              | Ok padded ->
+                  let entry_parent =
+                    Printf.sprintf "%s.certificates[%d]" parent !index
+                  in
+                  let fields = ref [] in
+                  fields :=
+                    add_field context !fields ~parent:entry_parent ~id:"length"
+                      ~label:"Length" ~offset:!cursor ~length:4L
+                      (Value.unsigned 32 length);
+                  fields :=
+                    add_field context !fields ~parent:entry_parent
+                      ~id:"revision" ~label:"Revision"
+                      ~offset:(Int64.add !cursor 4L) ~length:2L
+                      (Value.enum 16 revision
+                         (Parser_common.enum_name certificate_revisions revision));
+                  fields :=
+                    add_field context !fields ~parent:entry_parent ~id:"type"
+                      ~label:"Certificate type" ~offset:(Int64.add !cursor 6L)
+                      ~length:2L
+                      (Value.enum 16 kind
+                         (Parser_common.enum_name certificate_types kind));
+                  let payload_length = Int64.sub length 8L in
+                  (if not (Int64.equal payload_length 0L) then
+                     match
+                       Parser_common.hex context (Int64.add !cursor 8L)
+                         (min payload_length 16L)
+                     with
+                     | None -> ()
+                     | Some summary ->
+                         fields :=
+                           add_field context !fields ~parent:entry_parent
+                             ~id:"certificate" ~label:"Certificate bytes"
+                             ~offset:(Int64.add !cursor 8L)
+                             ~length:payload_length
+                             (Value.Bytes { summary; length = payload_length }));
+                  let children = List.rev !fields in
+                  (match
+                     Parse_context.node context
+                       ~id:(Printf.sprintf "certificate[%d]" !index)
+                       ~path:entry_parent
+                       ~label:(Printf.sprintf "Certificate %d" !index)
+                       ~span:(Span.unsafe ~start:!cursor ~length:padded)
+                       ~value:(Value.Collection (List.length children))
+                       ~children ()
+                   with
+                  | None -> ()
+                  | Some node -> nodes := node :: !nodes);
+                  cursor := Int64.add !cursor padded;
+                  incr index)
+          | Some _, Some _, Some _ ->
+              Parse_context.error context ~span:record.span
+                ~code:"pe.certificate_length_too_small"
+                ~message:"A certificate entry is shorter than eight bytes."
+                ~component ~recoverable:true ();
+              running := false
+          | _ -> running := false)
+  done;
+  let nodes = List.rev !nodes in
+  Parse_context.node context ~id:"certificates" ~path:(parent ^ ".certificates")
+    ~label:"Certificates"
+    ~span:(Span.unsafe ~start:offset ~length:record.size)
+    ~value:(Value.Collection (List.length nodes))
+    ~children:nodes ()
+
+let relocation_types =
+  [ (0L, "Absolute");
+    (1L, "High");
+    (2L, "Low");
+    (3L, "High-low");
+    (4L, "High-adjust");
+    (8L, "Machine-specific");
+    (9L, "Machine-specific 16-bit");
+    (10L, "64-bit")
+  ]
+
+let parse_base_relocations context record ~offset ~parent =
+  let component = "pe.base_relocations" in
+  let finish = Int64.add offset record.size in
+  let cursor = ref offset and block_index = ref 0 and running = ref true in
+  let blocks = ref [] in
+  while !running && Int64.compare !cursor finish < 0 do
+    let remaining = Int64.sub finish !cursor in
+    if Int64.compare remaining 8L < 0 then (
+      Parse_context.error context ~span:record.span
+        ~code:"pe.relocation_truncated_block"
+        ~message:
+          "The base-relocation table ends before a complete block header."
+        ~component ~recoverable:true ();
+      running := false)
+    else
+      let page_rva = Parser_common.u32 context Endian.Little !cursor
+      and block_size =
+        Parser_common.u32 context Endian.Little (Int64.add !cursor 4L)
+      in
+      match (page_rva, block_size) with
+      | Some page_rva, Some block_size
+        when Int64.compare block_size 8L >= 0
+             && Int64.compare block_size remaining <= 0 -> (
+          let entry_bytes = Int64.sub block_size 8L in
+          if not (Int64.equal (Int64.rem entry_bytes 2L) 0L) then (
+            Parse_context.error context ~span:record.span
+              ~code:"pe.relocation_odd_block_size"
+              ~message:"A base-relocation block has an incomplete entry."
+              ~component ~recoverable:true ();
+            running := false)
+          else
+            match
+              consume_pe_entries context ~component (Int64.div entry_bytes 2L)
+            with
+            | None -> running := false
+            | Some count ->
+                let block_parent =
+                  Printf.sprintf "%s.base_relocation_blocks[%d]" parent
+                    !block_index
+                in
+                let entries = ref [] in
+                for index = 0 to count - 1 do
+                  let entry_offset =
+                    Int64.add !cursor (Int64.of_int (8 + (index * 2)))
+                  in
+                  match
+                    Parser_common.u16 context Endian.Little entry_offset
+                  with
+                  | None -> ()
+                  | Some raw -> (
+                      let kind = Int64.shift_right_logical raw 12
+                      and page_offset = Int64.logand raw 0xfffL in
+                      let entry_parent =
+                        Printf.sprintf "%s.entries[%d]" block_parent index
+                      in
+                      let fields = [] in
+                      let fields =
+                        add_field context fields ~parent:entry_parent ~id:"type"
+                          ~label:"Type" ~offset:entry_offset ~length:2L
+                          (Value.enum 4 kind
+                             (Parser_common.enum_name relocation_types kind))
+                      in
+                      let fields =
+                        add_field context fields ~parent:entry_parent
+                          ~id:"page_offset" ~label:"Page offset"
+                          ~offset:entry_offset ~length:2L
+                          (Value.offset 12 page_offset)
+                      in
+                      match
+                        Parse_context.node context
+                          ~id:(Printf.sprintf "entry[%d]" index)
+                          ~path:entry_parent
+                          ~label:(Printf.sprintf "Relocation %d" index)
+                          ~span:(Span.unsafe ~start:entry_offset ~length:2L)
+                          ~value:(Value.Collection (List.length fields))
+                          ~children:(List.rev fields) ()
+                      with
+                      | None -> ()
+                      | Some node -> entries := node :: !entries)
+                done;
+                let header_fields = [] in
+                let header_fields =
+                  add_field context header_fields ~parent:block_parent
+                    ~id:"page_rva" ~label:"Page RVA" ~offset:!cursor ~length:4L
+                    (Value.address 32 page_rva)
+                in
+                let header_fields =
+                  add_field context header_fields ~parent:block_parent
+                    ~id:"block_size" ~label:"Block size"
+                    ~offset:(Int64.add !cursor 4L) ~length:4L
+                    (Value.unsigned 32 block_size)
+                in
+                let children = List.rev header_fields @ List.rev !entries in
+                (match
+                   Parse_context.node context
+                     ~id:
+                       (Printf.sprintf "base_relocation_block[%d]" !block_index)
+                     ~path:block_parent
+                     ~label:
+                       (Printf.sprintf "Base-relocation block %d" !block_index)
+                     ~span:(Span.unsafe ~start:!cursor ~length:block_size)
+                     ~value:(Value.Collection (List.length children))
+                     ~children ()
+                 with
+                | None -> ()
+                | Some node -> blocks := node :: !blocks);
+                cursor := Int64.add !cursor block_size;
+                incr block_index)
+      | Some _, Some _ ->
+          Parse_context.error context ~span:record.span
+            ~code:"pe.relocation_invalid_block_size"
+            ~message:"A base-relocation block has an invalid size." ~component
+            ~recoverable:true ();
+          running := false
+      | _ -> running := false
+  done;
+  let blocks = List.rev !blocks in
+  Parse_context.node context ~id:"base_relocation_blocks"
+    ~path:(parent ^ ".base_relocation_blocks")
+    ~label:"Base relocations"
+    ~span:(Span.unsafe ~start:offset ~length:record.size)
+    ~value:(Value.Collection (List.length blocks))
+    ~children:blocks ()
+
+let debug_types =
+  [ (0L, "Unknown");
+    (1L, "COFF");
+    (2L, "CodeView");
+    (3L, "Frame pointer omission");
+    (4L, "Miscellaneous");
+    (9L, "Borland");
+    (10L, "Reserved");
+    (11L, "CLSID");
+    (16L, "Reproducible")
+  ]
+
+let parse_debug_directories context record ~offset ~parent =
+  let component = "pe.debug_directories" in
+  if not (Int64.equal (Int64.rem record.size 28L) 0L) then
+    Parse_context.error context ~span:record.span
+      ~code:"pe.debug_directory_size"
+      ~message:"The debug directory size is not a multiple of 28 bytes."
+      ~component ~recoverable:true ();
+  let count64 = Int64.div record.size 28L in
+  match consume_pe_entries context ~component count64 with
+  | None -> None
+  | Some count ->
+      let nodes = ref [] in
+      for index = 0 to count - 1 do
+        let base = Int64.add offset (Int64.of_int (index * 28)) in
+        let entry_parent =
+          Printf.sprintf "%s.debug_directories[%d]" parent index
+        in
+        let fields = ref [] in
+        let add32 id label relative value =
+          match value with
+          | None -> ()
+          | Some raw ->
+              fields :=
+                add_field context !fields ~parent:entry_parent ~id ~label
+                  ~offset:(Int64.add base relative) ~length:4L
+                  (Value.unsigned 32 raw)
+        in
+        add32 "characteristics" "Characteristics" 0L
+          (Parser_common.u32 context Endian.Little base);
+        add32 "timestamp" "Timestamp" 4L
+          (Parser_common.u32 context Endian.Little (Int64.add base 4L));
+        (match
+           ( Parser_common.u16 context Endian.Little (Int64.add base 8L),
+             Parser_common.u16 context Endian.Little (Int64.add base 10L) )
+         with
+        | Some major, Some minor ->
+            fields :=
+              add_field context !fields ~parent:entry_parent ~id:"major_version"
+                ~label:"Major version" ~offset:(Int64.add base 8L) ~length:2L
+                (Value.unsigned 16 major);
+            fields :=
+              add_field context !fields ~parent:entry_parent ~id:"minor_version"
+                ~label:"Minor version" ~offset:(Int64.add base 10L) ~length:2L
+                (Value.unsigned 16 minor)
+        | _ -> ());
+        (match Parser_common.u32 context Endian.Little (Int64.add base 12L) with
+        | Some raw ->
+            fields :=
+              add_field context !fields ~parent:entry_parent ~id:"type"
+                ~label:"Type" ~offset:(Int64.add base 12L) ~length:4L
+                (Value.enum 32 raw (Parser_common.enum_name debug_types raw))
+        | None -> ());
+        let data_size =
+          Parser_common.u32 context Endian.Little (Int64.add base 16L)
+        and data_rva =
+          Parser_common.u32 context Endian.Little (Int64.add base 20L)
+        and data_offset =
+          Parser_common.u32 context Endian.Little (Int64.add base 24L)
+        in
+        add32 "data_size" "Data size" 16L data_size;
+        add32 "data_rva" "Data RVA" 20L data_rva;
+        add32 "data_file_offset" "Data file offset" 24L data_offset;
+        (match (data_size, data_offset) with
+        | Some size, Some pointer
+          when not (Int64.equal size 0L || Int64.equal pointer 0L) -> (
+            match
+              Reader.range context.Parse_context.reader ~offset:pointer
+                ~length:size
+            with
+            | Ok () -> ()
+            | Error _ ->
+                Parse_context.error context
+                  ~span:(Span.unsafe ~start:(Int64.add base 24L) ~length:4L)
+                  ~code:"pe.debug_data_out_of_file"
+                  ~message:"A debug record points outside the input." ~component
+                  ~recoverable:true ())
+        | _ -> ());
+        let children = List.rev !fields in
+        match
+          Parse_context.node context
+            ~id:(Printf.sprintf "debug_directory[%d]" index)
+            ~path:entry_parent
+            ~label:(Printf.sprintf "Debug directory %d" index)
+            ~span:(Span.unsafe ~start:base ~length:28L)
+            ~value:(Value.Collection (List.length children))
+            ~children ()
+        with
+        | None -> ()
+        | Some node -> nodes := node :: !nodes
+      done;
+      let nodes = List.rev !nodes in
+      Parse_context.node context ~id:"debug_directories"
+        ~path:(parent ^ ".debug_directories")
+        ~label:"Debug directories"
+        ~span:(Span.unsafe ~start:offset ~length:record.size)
+        ~value:(Value.Collection (List.length nodes))
+        ~children:nodes ()
+
+let parse_mapped_directory context record ~file_offset ~parent =
+  match record.index with
+  | 4 -> parse_certificates context record ~offset:file_offset ~parent
+  | 5 -> parse_base_relocations context record ~offset:file_offset ~parent
+  | 6 -> parse_debug_directories context record ~offset:file_offset ~parent
+  | _ -> None
+
 let parse_directory_mappings context records sections ~header_size =
   let nodes = ref [] in
   let running = ref true in
@@ -257,7 +641,12 @@ let parse_directory_mappings context records sections ~header_size =
                     ~length:4L
                     (Value.offset 64 file_offset)
                 in
-                let children = Option.to_list offset_node in
+                let content =
+                  parse_mapped_directory context record ~file_offset ~parent
+                in
+                let children =
+                  Option.to_list offset_node @ Option.to_list content
+                in
                 let label =
                   if record.index < Array.length directory_names then
                     directory_names.(record.index)

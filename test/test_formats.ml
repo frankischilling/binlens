@@ -130,6 +130,51 @@ let test_pe_rva_mapping_malformed () =
          String.equal diagnostic.Diagnostic.code "pe.directory_ambiguous")
        result.diagnostics)
 
+let test_pe_directory_records () =
+  List.iter
+    (fun bytes ->
+      let result = parse "pe" bytes in
+      assert_no_errors result;
+      assert_path result "pe.directory_mappings[4].certificates[0].certificate";
+      assert_path result
+        "pe.directory_mappings[5].base_relocation_blocks[0].entries[0].type";
+      assert_path result "pe.directory_mappings[6].debug_directories[0].type";
+      let certificate =
+        require_path result "pe.directory_mappings[4].certificates[0]"
+      in
+      Alcotest.(check int64)
+        "certificate span" 16L
+        (Span.length certificate.Node.span))
+    [ Fixture_builder.pe32_directories ();
+      Fixture_builder.pe32_plus_directories ()
+    ]
+
+let test_pe_directory_records_malformed () =
+  let small_certificate = Fixture_builder.pe32_directories () in
+  Fixture_builder.set_u32 small_certificate Endian.Little 0x500 4L;
+  Alcotest.(check bool)
+    "small certificate" true (parse "pe" small_certificate).partial;
+  let bad_relocation = Fixture_builder.pe32_directories () in
+  Fixture_builder.set_u32 bad_relocation Endian.Little 0x244 7L;
+  Alcotest.(check bool)
+    "bad relocation block" true (parse "pe" bad_relocation).partial;
+  let bad_debug_size = Fixture_builder.pe32_directories () in
+  Fixture_builder.set_u32 bad_debug_size Endian.Little (0xf8 + (6 * 8) + 4) 27L;
+  Alcotest.(check bool)
+    "bad debug size" true (parse "pe" bad_debug_size).partial;
+  let misaligned_certificate = Fixture_builder.pe32_directories () in
+  Fixture_builder.set_u32 misaligned_certificate Endian.Little
+    (0xf8 + (4 * 8))
+    0x501L;
+  let result = parse "pe" misaligned_certificate in
+  Alcotest.(check bool)
+    "certificate alignment diagnostic" true
+    (List.exists
+       (fun diagnostic ->
+         String.equal diagnostic.Diagnostic.code
+           "pe.certificate_table_misaligned")
+       result.diagnostics)
+
 let test_pe_malformed () =
   let invalid_mz = Fixture_builder.corrupt_u8 (Fixture_builder.pe32 ()) 0 0 in
   Alcotest.(check bool) "bad MZ partial" true (parse "pe" invalid_mz).partial;
@@ -318,6 +363,8 @@ let test_truncation () =
       ("elf", Fixture_builder.elf64_big ());
       ("pe", Fixture_builder.pe32 ());
       ("pe", Fixture_builder.pe32_plus ());
+      ("pe", Fixture_builder.pe32_directories ());
+      ("pe", Fixture_builder.pe32_plus_directories ());
       ("nes", Fixture_builder.nes ());
       ("gameboy", Fixture_builder.gameboy ~full_payload:false ());
       ("gba", Fixture_builder.gba ())
@@ -346,6 +393,10 @@ let () =
           Alcotest.test_case "RVA mapping" `Quick test_pe_rva_mapping;
           Alcotest.test_case "malformed RVA mapping" `Quick
             test_pe_rva_mapping_malformed;
+          Alcotest.test_case "directory records" `Quick
+            test_pe_directory_records;
+          Alcotest.test_case "malformed directory records" `Quick
+            test_pe_directory_records_malformed;
           Alcotest.test_case "malformed" `Quick test_pe_malformed;
           Alcotest.test_case "limits and ranges" `Quick
             test_parser_limits_and_ranges

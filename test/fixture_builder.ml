@@ -159,6 +159,44 @@ let pe ~plus =
 let pe32 () = pe ~plus:false
 let pe32_plus () = pe ~plus:true
 
+let pe_directories ~plus =
+  let original = pe ~plus in
+  let bytes = Bytes.extend original 0 (0x520 - Bytes.length original) in
+  let optional_offset = 0x98 in
+  let directory_offset = optional_offset + if plus then 112 else 96 in
+  let section_offset = optional_offset + if plus then 240 else 224 in
+  set_u32 bytes Endian.Little (section_offset + 8) 0x200L;
+  set_u32 bytes Endian.Little (section_offset + 16) 0x200L;
+  let set_directory index address size =
+    let entry = directory_offset + (index * 8) in
+    set_u32 bytes Endian.Little entry address;
+    set_u32 bytes Endian.Little (entry + 4) size
+  in
+  set_directory 4 0x500L 16L;
+  set_directory 5 0x1040L 12L;
+  set_directory 6 0x1060L 28L;
+  set_u32 bytes Endian.Little 0x500 12L;
+  set_u16 bytes Endian.Little 0x504 0x200;
+  set_u16 bytes Endian.Little 0x506 2;
+  set_string bytes 0x508 "CERT";
+  set_u32 bytes Endian.Little 0x240 0x1000L;
+  set_u32 bytes Endian.Little 0x244 12L;
+  set_u16 bytes Endian.Little 0x248 0x3001;
+  set_u16 bytes Endian.Little 0x24a 0;
+  set_u32 bytes Endian.Little 0x260 0L;
+  set_u32 bytes Endian.Little 0x264 0x6500_0000L;
+  set_u16 bytes Endian.Little 0x268 1;
+  set_u16 bytes Endian.Little 0x26a 0;
+  set_u32 bytes Endian.Little 0x26c 2L;
+  set_u32 bytes Endian.Little 0x270 4L;
+  set_u32 bytes Endian.Little 0x274 0x1100L;
+  set_u32 bytes Endian.Little 0x278 0x300L;
+  set_string bytes 0x300 "RSDS";
+  bytes
+
+let pe32_directories () = pe_directories ~plus:false
+let pe32_plus_directories () = pe_directories ~plus:true
+
 let nes ?(nes2 = false) ?(trainer = false) ?(prg_banks = 1) ?(chr_banks = 0) ()
     =
   let trainer_size = if trainer then 512 else 0 in
